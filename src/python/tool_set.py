@@ -156,7 +156,7 @@ def openImage(filename,videoFrameTime=None,isMask=False,preserveSnapshot=False):
          ret, frame = cap.read()
          if not ret:
             break
-         if videoFrameTime and videoFrameTime < float(cap.get(cv2.cv.CV_CAP_PROP_POS_MSEC)):
+         if videoFrameTime and videoFrameTime < float(cap.get(0)):
            bestSoFar = frame
            break
          varianceOfImage = math.sqrt(ndimage.measurements.variance(frame)) 
@@ -277,7 +277,7 @@ def __findBestMatch(big,small):
     """
     if (np.any(np.asarray([(x[1]-x[0]) for x in zip(small.shape,big.shape)])<0)):
        return None
-    result = cv2.matchTemplate(big, small, cv2.cv.CV_TM_SQDIFF_NORMED)
+    result = cv2.matchTemplate(big, small, cv2.TM_SQDIFF_NORMED)
     mn,_,mnLoc,_ = cv2.minMaxLoc(result)
     tuple=(mnLoc[1],mnLoc[0],mnLoc[1]+small.shape[0],mnLoc[0]+small.shape[1])
     if (tuple[2] > big.shape[0] or tuple[3] > big.shape[1]):

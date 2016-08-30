@@ -10,18 +10,19 @@ def otsu(hist):
   sumB = 0
   wB = 0
   maximum = 0.0
+  level = 0
   sum1 = np.dot( np.asarray(range(256)), hist)
   for ii in range(256):
     wB = wB + hist[ii]
     if wB == 0:
         continue
-    wF = total - wB;
+    wF = total - wB
     if wF == 0:
         break
     sumB = sumB +  ii * hist[ii]
     mB = sumB / wB
-    mF = (sum1 - sumB) / wF;
-    between = wB * wF * (mB - mF) * (mB - mF);
+    mF = (sum1 - sumB) / wF
+    between = wB * wF * (mB - mF) * (mB - mF)
     if between >= maximum:
         level = ii
         maximum = between
@@ -92,7 +93,7 @@ def _buildMasks(filename,histandcount):
        totalMatch+=sum(sum(matches))
        result[matches]=0
     if totalMatch>0:
-       elapsed_time = cap.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
+       elapsed_time = cap.get(0)
        cv2.imwrite(maskprefix + '_mask_' + str(elapsed_time) + '.png',gray)      
        break
   cap.release()
@@ -106,12 +107,13 @@ def buildMasksFromCombinedVideo(filename,codec='mp4v',suffix='mp4',startSegment=
   maskprefix = filename[0:filename.rfind('.')]
   capIn = cv2.VideoCapture(filename)
   capOut = None
+  elapsed_time = 0.0
   try:
     ranges= []
     start = None
-    fourcc = cv2.cv.CV_FOURCC(*codec)
+    fourcc = cv2.VideoWriter_fourcc(*codec)
     count = 0
-    fgbg = cv2.BackgroundSubtractorMOG2()
+    fgbg = cv2.createBackgroundSubtractorMOG2()
     first = True
     sample = None
     kernel = np.ones((5,5),np.uint8)
@@ -121,12 +123,14 @@ def buildMasksFromCombinedVideo(filename,codec='mp4v',suffix='mp4',startSegment=
         sample = np.ones(frame[:,:,0].shape)*255
       if not ret:
         break
-      elapsed_time = capIn.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
+      elapsed_time = capIn.get(0)
       if startSegment and startSegment > elapsed_time:
         continue
       if endSegment and endSegment < elapsed_time:
         break
-      thresh = fgbg.apply(frame)
+      cv2.ocl.setUseOpenCL(False)
+      thresh = fgbg.apply(frame) # errors here
+      cv2.ocl.setUseOpenCL(True)
       if first:
         first = False
         continue
@@ -146,7 +150,7 @@ def buildMasksFromCombinedVideo(filename,codec='mp4v',suffix='mp4',startSegment=
         if start is None:
           start = elapsed_time + startTime
           sample = result
-          capOut = cv2.VideoWriter(_composeMaskName(maskprefix,start,suffix), fourcc, capIn.get(cv2.cv.CV_CAP_PROP_FPS),(result.shape[1],result.shape[0]),False)
+          capOut = cv2.VideoWriter(_composeMaskName(maskprefix,start,suffix), fourcc, capIn.get(5),(result.shape[1],result.shape[0]),False)
         capOut.write(_grayToRGB(result))
       else:
         if start is not None:
@@ -190,13 +194,11 @@ def _invertSegment(dir,segmentFileName, prefix,starttime,codec='mp4v'):
    suffix = segmentFileName[segmentFileName.rfind('.')+1:]
    maskFileName = _composeMaskName(prefix,str(starttime),suffix)
    capIn = cv2.VideoCapture(os.path.join(dir,segmentFileName))
-   fourcc = capIn.get(cv2.cv.CV_CAP_PROP_FOURCC)
+   fourcc = capIn.get(6)
    if fourcc == 0:
-     fourcc = cv2.cv.CV_FOURCC(*codec)
-   capOut = cv2.VideoWriter(os.path.join(dir,maskFileName), fourcc, \
-             capIn.get(cv2.cv.CV_CAP_PROP_FPS), \
-             (int(capIn.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)),int(capIn.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))), \
-             False)
+     fourcc = cv2.VideoWriter_fourcc(*codec)
+   capOut = cv2.VideoWriter(os.path.join(dir,maskFileName), fourcc, capIn.get(5),
+                            (int(capIn.get(3)),int(capIn.get(4))), False)
    try:
      ret = True
      while(ret and  capIn.isOpened()):
