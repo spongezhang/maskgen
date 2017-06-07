@@ -151,3 +151,4 @@ def mapCmdArgs(args, mapping):
                     raise ValueError('Option \"' + str(val) + '\" is not permitted for this plugin.')
                 args[key] = mapping[key][val]
     return args
+

@@ -815,7 +815,8 @@
           "values": [
             "Pincushion",
             "Barrel",
-            "Mustache"
+            "Mustache",
+            "Other"
           ],
           "description": "Type of distortion being applied to image."
         }
