@@ -44,7 +44,7 @@ def _lens_distort(input_array, k, bordertype='fit', interpolation='linear', padm
                 'bound': cv2.BORDER_CONSTANT,
                 'circular': cv2.BORDER_WRAP
                 }
-    def _correct_distortion(I, K, bordertype='fit',model=None):
+    def _correct_distortion(I, k, bordertype='fit',model=None):
         M = I.shape[0]  # (y rows)
         N = I.shape[1]  # (x)
         center = int(round(float(N) / 2.0)), int(round(float(M) / 2.0))
