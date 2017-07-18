@@ -13,7 +13,7 @@ from maskgen  import plugins
 from maskgen import group_operations
 import logging
 from threading import Lock, Thread
-
+from datetime import datetime
 
 class IntObject:
     value = 0
@@ -167,28 +167,34 @@ def getNodeState(node_name,local_state):
 
 def pickImage(node, global_state={}):
     with global_state['picklistlock']:
+        listing = []
         if node['picklist'] not in global_state:
             if not os.path.exists(node['image_directory']):
                 raise ValueError("ImageSelection missing valid image_directory: " + node['image_directory'])
-            listing = os.listdir(node['image_directory'])
-            global_state[node['picklist']] = listing
+            #listing = os.listdir(node['image_directory'])
+            print(node['image_directory'])
             if os.path.exists(node['picklist'] + '.txt'):
-               with open(node['picklist'] + '.txt', 'r') as fp:
+               with open(node['image_directory'] + node['picklist'] + '.txt', 'r') as fp:
                   for line in fp.readlines():
+                      #print(line)
                       line = line.strip()
-                      if line in listing:
-                          listing.remove(line)
+                      listing.append(line)
+                      #if line in listing:
+                          #listing.remove(line)
+            global_state[node['picklist']] = listing
         else:
             listing = global_state[node['picklist']]
+
         if len(listing) == 0:
             raise ValueError("Picklist of Image Files Empty")
+        
         pick = random.choice(listing)
-        listing.remove(pick)
-        if node['picklist'] not in global_state['picklists_files']:
-            global_state['picklists_files'][node['picklist']] = \
-               open(node['picklist'] + '.txt', 'a')
-        global_state['picklists_files'][node['picklist']].write(pick + '\n')
-        global_state['picklists_files'][node['picklist']].flush()
+        #listing.remove(pick)
+        #if node['picklist'] not in global_state['picklists_files']:
+        #    global_state['picklists_files'][node['picklist']] = \
+        #       open(node['picklist'] + '.txt', 'a')
+        #global_state['picklists_files'][node['picklist']].write(pick + '\n')
+        #global_state['picklists_files'][node['picklist']].flush()
         return os.path.join(node['image_directory'], pick)
 
 class BatchOperation:
@@ -260,10 +266,12 @@ class BaseSelectionOperation(BatchOperation):
         pick = pickImage( node,global_state =global_state)
         pick_file = os.path.split(pick)[1]
         name = pick_file[0:pick_file.rfind('.')]
-        dir = os.path.join(global_state['projects'],name)
+        now = datetime.now()
+        dir = os.path.join(global_state['projects'],name + '_' + now.strftime("%Y%m%d-%H%M%S"))
+        print(dir)
         os.mkdir(dir)
         shutil.copy2(pick, os.path.join(dir,pick_file))
-        local_state['model'] = scenario_model.createProject(dir,suffixes=tool_set.suffixes)[0]
+        local_state['model'] = scenario_model.createProject(dir, timestr = now.strftime("%Y%m%d-%H%M%S"), suffixes=tool_set.suffixes)[0]
         for prop, val in local_state['project'].iteritems():
             local_state['model'].setProjectData(prop, val)
         getNodeState(node_name, local_state)['node'] = local_state['model'].getNodeNames()[0]
@@ -387,13 +395,11 @@ class InputMaskPluginOperation(PluginOperation):
             raise ValueError("Plugin " + filter + " failed:" + msg)
         return target,params
 
-
 batch_operations = {'BaseSelection': BaseSelectionOperation(),'ImageSelection':ImageSelectionOperation(),
                     'PluginOperation' : PluginOperation(),'InputMaskPluginOperation' : InputMaskPluginOperation()}
 
 def getOperationGivenDescriptor(descriptor):
     """
-
     :param descriptor:
     :return:
     @rtype : BatchOperation
@@ -402,9 +408,7 @@ def getOperationGivenDescriptor(descriptor):
 
 class BatchProject:
     logger = logging.getLogger('BatchProject')
-
     G = nx.DiGraph(name="Empty")
-
     def __init__(self,G,json_data):
         """
         :param G:
@@ -475,8 +479,8 @@ class BatchProject:
             for node in self.json_data['nodes']:
                 f.write(node['id']  + ',' + str(position) + '\n')
                 position += 1
-
     colors_bytype ={ 'InputMaskPluginOperation' : 'blue'}
+    
     def _draw(self):
         import pydot
         pydot_nodes = {}
@@ -505,7 +509,6 @@ class BatchProject:
         :return:
         @rtype : List[str]
         """
-
         errors = []
         topcount = 0
         for top in self._findTops():
@@ -548,11 +551,11 @@ class BatchProject:
         """
         try:
             self.logger.debug('_execute_node ' + node_name + ' connect to ' + str (connect_to_node_name))
-            return getOperationGivenDescriptor(self.G.node[node_name]).execute(self.G, node_name,self.G.node[node_name],connect_to_node_name, local_state = local_state, global_state=global_state)
+            return getOperationGivenDescriptor(self.G.node[node_name]).execute(self.G, node_name,self.G.node[node_name],\
+                    connect_to_node_name, local_state = local_state, global_state=global_state)
         except Exception as e:
             print e
             raise e
-
 
 def getBatch(jsonFile,loglevel=50):
     """
