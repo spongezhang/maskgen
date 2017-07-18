@@ -90,7 +90,7 @@
     },
     {
       "op_type": "PluginOperation",
-      "plugin": "PasteSplice",
+      "plugin": "AutoPasteSplice",
       "id": "5",
       "arguments": {
         "approach": {
