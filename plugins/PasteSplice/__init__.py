@@ -38,7 +38,8 @@ class TransformedEllipse(Ellipse):
 
 
 def minimum_bounding_box(image):
-    (contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    im2, contours, hierarchy = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     selected = []
     for cnt in contours:
         try:
@@ -49,11 +50,14 @@ def minimum_bounding_box(image):
             selected.append((w,h,w*h,x,y))
         except:
             continue
+        
     selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
+    
     if len(selected) == 0:
         print 'cannot determine contours'
         x, y, w, h = tool_set.widthandheight(image)
         selected = [ (w,h,w*h,x+w/2,y+h/2)]
+    
     return selected[0]
 
 def minimum_bounding_ellipse_of_points(points):
@@ -122,9 +126,8 @@ def transform_image(image,transform_matrix):
     """
     return cv2.warpAffine(image,transform_matrix,(image.shape[1],image.shape[0]))
 
-
 def build_random_transform(img_to_paste, mask_of_image_to_paste, image_center):
-    scale = 0.5 +  random.random()
+    scale = 0.5 + random.random()
     angle = 180.0*random.random() - 90.0
     return cv2.getRotationMatrix2D(image_center, angle, scale)
 
@@ -169,13 +172,14 @@ def transform(img,source,target,**kwargs):
                     labels1 = segmentation.slic(gray, compactness=5, n_segments=min(500, int(imgsize/(sigma*2*masksize))))
                 else:
                     labels1= segmentation.felzenszwalb(gray, scale=min_size, sigma=sigma, min_size=int(min_size))
-
+                
                 #Compute the Region Adjacency Graph using mean colors.
                 #
                 # Given an image and its initial segmentation, this method constructs the corresponding  RAG.
                 # Each node represents a set of pixels  within image with the same label in labels.
                 # The weight between two adjacent regions represents how similar or dissimilar two
                 # regions are depending on the mode parameter.
+                
                 cutThresh = 0.000000005
                 labelset = np.unique(labels1)
                 while len(labels1) > 100000 or len(labelset) > 500:
@@ -220,8 +224,10 @@ def transform(img,source,target,**kwargs):
                     if out2 is not None:
                         break
                 sigma+=0.5
+    
     if out2 is None:
-        transform_matrix, out2 = pasteAnywhere(img, img_to_paste.to_array(),mask_of_image_to_paste, approach=='simple')
+        transform_matrix, out2 = pasteAnywhere(img, img_to_paste.to_array(), mask_of_image_to_paste, approach=='simple')
+        
     ImageWrapper(out2).save(target)
     return {'transform matrix':tool_set.serializeMatrix(transform_matrix)} if transform_matrix is not None else None,None
 
@@ -229,32 +235,32 @@ def transform(img,source,target,**kwargs):
 # the category to be shown
 def operation():
   return {'name':'PasteSplice',
-          'category':'Paste',
-          'description':'Apply a mask to create an alpha channel',
-          'software':'OpenCV',
-          'version':'2.4.13',
-          'arguments':{
-              'donor':{
-                  'type':'donor',
-                  'defaultvalue':None,
-                  'description':'Mask to set alpha channel to 0'
-              },
-              'approach': {
-                  'type': 'list',
-                  'values': ['texture', 'simple', 'random'],
-                  'defaultvalue': 'random',
-                  'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
-              },
-              'segment': {
-                  'type': 'list',
-                  'values' : ['felzenszwalb','slic'],
-                  'defaultvalue': 'felzenszwalb',
-                  'description': 'Segmentation algorithm for determiming paste region with simple set to no'
-              }
+      'category':'Paste',
+      'description':'Apply a mask to create an alpha channel',
+      'software':'OpenCV',
+      'version':'2.4.13',
+      'arguments':{
+          'donor':{
+              'type':'donor',
+              'defaultvalue':None,
+              'description':'Mask to set alpha channel to 0'
           },
-          'transitions': [
-              'image.image'
-          ]
+          'approach': {
+              'type': 'list',
+              'values': ['texture', 'simple', 'random'],
+              'defaultvalue': 'random',
+              'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
+          },
+          'segment': {
+              'type': 'list',
+              'values' : ['felzenszwalb','slic'],
+              'defaultvalue': 'felzenszwalb',
+              'description': 'Segmentation algorithm for determiming paste region with simple set to no'
+          }
+      },
+      'transitions': [
+          'image.image'
+      ]
   }
 
 def suffix():
