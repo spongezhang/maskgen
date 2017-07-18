@@ -15,13 +15,13 @@
   "nodes": [
     {
       "op_type": "BaseSelection",
-      "image_directory": "tests/images",
+      "image_directory": "/home/xuzhang/project/Medifor/data/NC2017_Dev1_Beta4/world",
       "picklist": "imageset",
       "id": "0"
     },
     {
       "op_type": "ImageSelection",
-      "image_directory": "tests/images",
+      "image_directory": "/home/xuzhang/project/Medifor/data/NC2017_Dev1_Beta4/world",
       "picklist": "imageset",
       "id": "1"
     },
