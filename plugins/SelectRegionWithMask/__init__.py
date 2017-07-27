@@ -34,16 +34,15 @@ def operation():
     return {'name':'SelectRegion',
             'category':'Select',
             'arguments':{
-                'inputmaskname': {
+               'inputmaskname': {
                     "type": "file:image",
                     "description": "An image file containing a mask describing the areas affected."
-                }
-           },
-           'description':'Create a limited selection in a donor image.  The provided inputmask is placed as the alpha channel of the result image',
-           'transitions': [
+                } 
+            },
+            'transitions': [
                 'image.image'
             ]
-         }
+        }
 
 def suffix():
     return '.png'

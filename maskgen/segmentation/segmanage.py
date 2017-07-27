@@ -8,10 +8,15 @@ Functions to support working with segmented images
 
 def find_segmentation_classifier(image_name,segmentation_directory):
     import os
-    real_name = os.path.split(image_name)[0]
-    dotpos = min(33,real_name.find('.'))
-    real_name = real_name[0:dotpos]
+    #real_name = os.path.split(image_name)[0]
+    #dotpos = min(33,real_name.find('.'))
+    #real_name = real_name[0:dotpos]
+    real_name = "COCO_train2014_02"
     segment_name = os.path.join(segmentation_directory,real_name + '.png')
+    #print(real_name)
+    #print(segmentation_directory)
+    print(segment_name)
+    #print('haha')
     return image_wrap.openImageFile(segment_name) if os.path.exists(segment_name) else None
 
 def segmentation_classification(segmentation_directory, color):
@@ -56,7 +61,7 @@ def select_region(img, mask, color=None):
         color = colors[np.random.randint(0,len(colors)-1)]
 
     channel[np.all(mask==[color[0],color[1],color[2]],axis=2)] = 255
-    (contours, _) = cv2.findContours(channel.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    (_, contours, _) = cv2.findContours(channel.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     for cnt in contours:
         if len(cnt) > 3:
             channel = np.zeros((mask.shape[0], mask.shape[1])).astype('uint8')

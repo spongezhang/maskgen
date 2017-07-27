@@ -2515,7 +2515,7 @@ def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect
         if h>rect[3]:
             y = y + (h-rect[3])/2
             h = rect[3]
-        
+
     w += w%2
     h += w%2
     x_offset = int(placement_center[0]) - int(math.floor(w/2))

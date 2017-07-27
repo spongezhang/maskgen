@@ -14,6 +14,20 @@ from maskgen import group_operations
 import logging
 from threading import Lock, Thread
 from datetime import datetime
+import skimage.io as io
+import numpy as np
+from pycocotools.coco import COCO
+
+import PIL
+
+
+dataDir='/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
+dataType='train2014'
+annFile='%s/annotations/instances_%s.json'%(dataDir,dataType)
+coco=COCO(annFile)
+imgIds = coco.getImgIds()
+
+base_name = None
 
 class IntObject:
     value = 0
@@ -167,36 +181,48 @@ def getNodeState(node_name,local_state):
 
 def pickImage(node, global_state={}):
     with global_state['picklistlock']:
-        listing = []
-        if node['picklist'] not in global_state:
-            if not os.path.exists(node['image_directory']):
-                raise ValueError("ImageSelection missing valid image_directory: " + node['image_directory'])
-            #listing = os.listdir(node['image_directory'])
-            #print(node['image_directory'])
-            print(node['image_directory'] + '/' + node['picklist'] + '.txt')
-            if os.path.exists(node['image_directory'] + '/' + node['picklist'] + '.txt'):
-               with open(node['image_directory'] + '/' + node['picklist'] + '.txt', 'r') as fp:
-                  for line in fp.readlines():
-                      #print(line)
-                      line = line.strip()
-                      listing.append(line)
-                      #if line in listing:
-                          #listing.remove(line)
-            global_state[node['picklist']] = listing
-        else:
-            listing = global_state[node['picklist']]
+        #print(len(imgIds))
+        img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
+        #print('haha')
+        #print(img['file_name'])
+        return os.path.join(node['image_directory'], img['file_name'])
 
-        if len(listing) == 0:
-            raise ValueError("Picklist of Image Files Empty")
+def pickImage_Mask(node, global_state={}):
+    with global_state['picklistlock']:
+        img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
+        annIds = coco.getAnnIds(imgIds=img['id'], iscrowd=None)
+        anns = coco.loadAnns(annIds)
         
-        pick = random.choice(listing)
-        #listing.remove(pick)
-        #if node['picklist'] not in global_state['picklists_files']:
-        #    global_state['picklists_files'][node['picklist']] = \
-        #       open(node['picklist'] + '.txt', 'a')
-        #global_state['picklists_files'][node['picklist']].write(pick + '\n')
-        #global_state['picklists_files'][node['picklist']].flush()
-        return os.path.join(node['image_directory'], pick)
+        if len(anns)==0:
+            tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
+            h,w = tmp_img.size
+            real_mask = np.zeros((w, h), dtype=np.uint8)
+            real_mask[w/4:3*w/4,h/4:3*h/4] = 1
+        else:
+            real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
+
+        real_mask = real_mask.astype(np.uint8)
+        x, y, w, h = tool_set.widthandheight(real_mask)
+        if w*h<32*32:
+            tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
+            h,w = tmp_img.size
+            real_mask = np.zeros((w, h), dtype=np.uint8)
+            real_mask[w/4:3*w/4,h/4:3*h/4] = 1
+
+        real_mask = (1-real_mask.astype(np.uint8))*255
+        
+        w, h = real_mask.shape
+        mask = np.empty((w, h, 3), dtype=np.uint8)
+        mask[:, :, 0] = real_mask
+        mask[:, :, 1] = real_mask
+        mask[:, :, 2] = real_mask
+        io.imsave('./tests/mask/'+ 'COCO_train2014_02' + '.png', mask)
+        f = open('./tests/mask/'+ 'classifications' + '.csv', 'w')
+        f.write('"[0,0,0]",object')
+        f.close()
+
+        return os.path.join(node['image_directory'], img['file_name'])
+
 
 class BatchOperation:
 
@@ -239,7 +265,7 @@ class ImageSelectionOperation(BatchOperation):
         @type global_state: Dict
         @rtype: scenario_model.ImageProjectModel
         """
-        pick = pickImage(node,global_state =global_state)
+        pick = pickImage_Mask(node,global_state =global_state)
         getNodeState(node_name,local_state)['node'] = local_state['model'].addImage(pick)
         return local_state['model']
 
@@ -264,7 +290,9 @@ class BaseSelectionOperation(BatchOperation):
         @type global_state: Dict
         @rtype: scenario_model.ImageProjectModel
         """
-        pick = pickImage( node,global_state =global_state)
+        print('image')
+        pick = pickImage(node,global_state =global_state)
+        print(pick)
         pick_file = os.path.split(pick)[1]
         name = pick_file[0:pick_file.rfind('.')]
         now = datetime.now()
@@ -565,6 +593,7 @@ def getBatch(jsonFile,loglevel=50):
     @return BatchProject
     """
     FORMAT = '%(asctime)-15s %(message)s'
+    print(jsonFile)
     logging.basicConfig(format=FORMAT,level=50 if loglevel is None else int(loglevel))
     return  loadJSONGraph(jsonFile)
 

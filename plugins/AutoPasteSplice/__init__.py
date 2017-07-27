@@ -140,6 +140,8 @@ def pasteAnywhere(img, img_to_paste,mask_of_image_to_paste, simple):
         img_to_paste = cv2.warpAffine(img_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         mask_of_image_to_paste= cv2.warpAffine(mask_of_image_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+        x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+        #x, y
     else:
         rot_mat = np.array([[1,0,0],[0,1,0]]).astype('float')
     
@@ -162,8 +164,8 @@ def pasteAnywhere(img, img_to_paste,mask_of_image_to_paste, simple):
     for i in range(2):
         for j in range(2):
             output_matrix[i,j] = rot_mat[i,j]
-    output_matrix[0,2] = rot_mat[0,2] + xplacement - x
-    output_matrix[1,2] = rot_mat[1,2] + yplacement - y
+    output_matrix[0,2] = rot_mat[0,2] + xplacement - x - w1/2
+    output_matrix[1,2] = rot_mat[1,2] + yplacement - y - h1/2
 
     return output_matrix, tool_set.place_in_image(
                           ImageWrapper(img_to_paste).to_mask().to_array(),
@@ -178,9 +180,7 @@ def transform(img,source,target,**kwargs):
     segment_algorithm =  kwargs['segment'] if 'segment' in kwargs else 'felzenszwalb'
     mask_of_image_to_paste = img_to_paste.to_mask().to_array()
     out2 = None
-
     transform_matrix, out2 = pasteAnywhere(img, img_to_paste.to_array(), mask_of_image_to_paste, approach=='simple')
-        
     ImageWrapper(out2).save(target)
     return {'transform matrix':tool_set.serializeMatrix(transform_matrix)} if transform_matrix is not None else None,None
 

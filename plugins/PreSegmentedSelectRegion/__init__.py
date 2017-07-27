@@ -33,12 +33,12 @@ def operation():
           'arguments':
               {'segmentation_directory':{
                   'type':'imagefile',
-                  'defaultvalue':None,
+                  'defaultvalue':'./tests/mask',
                   'description':'Directory containing the image segments'
               },
               'color': {
                       'type': 'string',
-                      'defaultvalue': None,
+                      'defaultvalue': '[0,0,0]',
                       'description': 'The color to be used for classification (e.g. [100,200,130])'
                   }
           },
