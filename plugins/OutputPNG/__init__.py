@@ -8,6 +8,7 @@ Save te image as PNG. If the image has a orientation and 'Image Rotated', rotate
 def transform(img,source,target, **kwargs):
     im = Image.open(source)
     im = np.array(im)
+    #deal with grayscale image
     if len(im.shape)==2:
         w, h = im.shape
         ret = np.empty((w, h, 3), dtype=np.uint8)

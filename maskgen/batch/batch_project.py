@@ -14,6 +14,21 @@ from maskgen import group_operations
 import logging
 from threading import Lock, Thread
 from datetime import datetime
+import skimage.io as io
+import numpy as np
+from pycocotools.coco import COCO
+
+import PIL
+
+
+dataDir='/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
+dataType='train2014'
+annFile='%s/annotations/instances_%s.json'%(dataDir,dataType)
+coco=None #COCO(annFile)
+imgIds = None #coco.getImgIds()
+COCO_flag = False
+base_name = None
+
 
 class IntObject:
     value = 0
@@ -22,6 +37,7 @@ class IntObject:
     def __init__(self, value=0):
         self.value = value
         pass
+
 
     def decrement(self):
         with self.lock:
@@ -198,6 +214,50 @@ def pickImage(node, global_state={}):
         #global_state['picklists_files'][node['picklist']].flush()
         return os.path.join(node['image_directory'], pick)
 
+def pickImage_COCO(node, global_state={}):
+    with global_state['picklistlock']:
+        #print(len(imgIds))
+        img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
+        #print('haha')
+        #print(img['file_name'])
+        return os.path.join(node['image_directory'], img['file_name'])
+
+def pickImage_COCO_with_Mask(node, global_state={}):
+    with global_state['picklistlock']:
+        img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
+        annIds = coco.getAnnIds(imgIds=img['id'], iscrowd=None)
+        anns = coco.loadAnns(annIds)
+        
+        if len(anns)==0:
+            tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
+            h,w = tmp_img.size
+            real_mask = np.zeros((w, h), dtype=np.uint8)
+            real_mask[w/4:3*w/4,h/4:3*h/4] = 1
+        else:
+            real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
+
+        real_mask = real_mask.astype(np.uint8)
+        x, y, w, h = tool_set.widthandheight(real_mask)
+        if w*h<32*32:
+            tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
+            h,w = tmp_img.size
+            real_mask = np.zeros((w, h), dtype=np.uint8)
+            real_mask[w/4:3*w/4,h/4:3*h/4] = 1
+
+        real_mask = (1-real_mask.astype(np.uint8))*255
+        
+        w, h = real_mask.shape
+        mask = np.empty((w, h, 3), dtype=np.uint8)
+        mask[:, :, 0] = real_mask
+        mask[:, :, 1] = real_mask
+        mask[:, :, 2] = real_mask
+        io.imsave('./tests/mask/'+ 'COCO_train2014_02' + '.png', mask)
+        f = open('./tests/mask/'+ 'classifications' + '.csv', 'w')
+        f.write('"[0,0,0]",object')
+        f.close()
+
+        return os.path.join(node['image_directory'], img['file_name'])
+
 class BatchOperation:
 
     def execute(self,graph, node_name, node, connect_to_node_name,local_state={},global_state={}):
@@ -239,7 +299,10 @@ class ImageSelectionOperation(BatchOperation):
         @type global_state: Dict
         @rtype: scenario_model.ImageProjectModel
         """
-        pick = pickImage(node,global_state =global_state)
+        if COCO_flag:
+            pick = pickImage_COCO_with_Mask(node, global_state = global_state)
+        else:
+            pick = pickImage(node, global_state = global_state)
         getNodeState(node_name,local_state)['node'] = local_state['model'].addImage(pick)
         return local_state['model']
 
@@ -264,14 +327,18 @@ class BaseSelectionOperation(BatchOperation):
         @type global_state: Dict
         @rtype: scenario_model.ImageProjectModel
         """
-        pick = pickImage( node,global_state =global_state)
+        if COCO_flag:
+            pick = pickImage_COCO(node,global_state =global_state)
+        else:
+            pick = pickImage( node,global_state =global_state)
         pick_file = os.path.split(pick)[1]
         name = pick_file[0:pick_file.rfind('.')]
         now = datetime.now()
         dir = os.path.join(global_state['projects'],name + '_' + now.strftime("%Y%m%d-%H%M%S"))
         print(dir)
         os.mkdir(dir)
-        shutil.copy2(pick, os.path.join(dir,pick_file))
+  
+  shutil.copy2(pick, os.path.join(dir,pick_file))
         local_state['model'] = scenario_model.createProject(dir, timestr = now.strftime("%Y%m%d-%H%M%S"), suffixes=tool_set.suffixes)[0]
         for prop, val in local_state['project'].iteritems():
             local_state['model'].setProjectData(prop, val)
@@ -571,6 +638,7 @@ def getBatch(jsonFile,loglevel=50):
 def thread_worker(projects,picklists_files,project,counter,picklistlock):
     globalState = {'projects' : projects,
                     'picklists_files':picklists_files,
+  
                     'project':project,
                     'count': counter,
                     'picklistlock': picklistlock}
@@ -589,7 +657,11 @@ def main():
     parser.add_argument('--threads', required=False, help='number of projects to build')
     parser.add_argument('--results', required=True, help='project results directory')
     parser.add_argument('--loglevel', required=False, help='log level')
-    parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')
+    parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')
+    parser.add_argument('--COCO_flag', required=False, action='store_true', help='whether to use COCO dataset.')
+    parser.add_argument("--COCO_Dir", nargs='?', type=str, default = '/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
+,help="Directory of MS COCO dataset.")
+    
     args = parser.parse_args()
     if not os.path.exists(args.results) or not os.path.isdir(args.results):
         print 'invalid directory for results: ' + args.results
@@ -602,6 +674,9 @@ def main():
                     batchProject,
                     IntObject(int(args.count)),
                     Lock())
+
+    if COCO_flag:
+        dataDir = args.COCO_Dir
     if args.graph is not None:
         batchProject.dump()
     threads_count = args.threads if args.threads else 1

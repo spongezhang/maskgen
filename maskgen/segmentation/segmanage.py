@@ -8,15 +8,17 @@ Functions to support working with segmented images
 
 def find_segmentation_classifier(image_name,segmentation_directory):
     import os
-    #real_name = os.path.split(image_name)[0]
-    #dotpos = min(33,real_name.find('.'))
-    #real_name = real_name[0:dotpos]
+    real_name = os.path.split(image_name)[0]
+    dotpos = min(33,real_name.find('.'))
+    real_name = real_name[0:dotpos]
+    segment_name = os.path.join(segmentation_directory,real_name + '.png')
+    return image_wrap.openImageFile(segment_name) if os.path.exists(segment_name) else None
+
+def find_segmentation_classifier_COCO(image_name,segmentation_directory):
+    import os
+    # have to fix this, but need a input.
     real_name = "COCO_train2014_02"
     segment_name = os.path.join(segmentation_directory,real_name + '.png')
-    #print(real_name)
-    #print(segmentation_directory)
-    print(segment_name)
-    #print('haha')
     return image_wrap.openImageFile(segment_name) if os.path.exists(segment_name) else None
 
 def segmentation_classification(segmentation_directory, color):
