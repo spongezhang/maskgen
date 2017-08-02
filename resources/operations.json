@@ -2265,6 +2265,69 @@
     },
     {
       "category": "Paste",
+      "name": "AutoPasteSplice",
+      "mandatoryparameters": {
+        "donor rotated": {
+          "type": "yesno",
+          "description": "Enter yes if the donor is rotated during the paste operation"
+        },
+        "donor resized": {
+          "type": "yesno",
+          "description": "Enter yes if the donor is resized during the paste operation"
+        },
+        "donor cropped": {
+          "type": "yesno",
+          "description": "Enter yes if the donor is cropped the paste operation. Ideally, crop should occur as a SelectRegion operation just prior to donation."
+        },
+        "purpose": {
+          "type": "list",
+          "values": [
+            "remove",
+            "add",
+            "blend"
+          ],
+          "description": "Purpose: remove an object, add an object."
+        },
+        "subject": {
+          "type": "list",
+          "values": [
+            "people",
+            "face",
+            "natural object",
+            "man-made object",
+            "large man-made object",
+            "landscape",
+            "other"
+          ],
+          "description": "Subject catgeory pasted to image"
+        }
+      },
+      "rules": [
+        "checkSize",
+        "checkSIFT",
+        "checkForDonorWithRegion",
+        "checkFileTypeChange",
+        "check_local",
+        "check_pastemask"
+      ],
+      "optionalparameters": {
+        "mode": {
+           "type":"list",
+           "values" : ["Color Dodge","Color","Darken","Difference","Dissolve","Divide","Exclusion","Hard Light","Hard Mix","Hue","IntensityBurn","Lighten","Lighter Dodge","Linear Burn",
+             "Linear Dodge (add)","Linear Light","Luminosity","Multiply","Opacity","Overlay","Pin Light","Saturation","Screen","Soft Light","Subtract","Vivid Light" ],
+           "description":"Blend Mode",
+           "rule" : {"purpose": "blend"}
+         }
+      },
+      "maskTransformFunction": "maskgen.mask_rules.pastesplice",
+      "description": "Paste a region of an image spliced from another image.  The other image is a Donor image.  The donor image should first be prepared by using an alpha channel to exclude the unselected regions of the image.",
+      "includeInMask": true,
+      "transitions": [
+        "image.image"
+      ]
+    },
+    {
+      "category": "Paste",
       "name": "PasteSplice",
       "mandatoryparameters": {
         "donor rotated": {

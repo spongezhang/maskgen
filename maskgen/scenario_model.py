@@ -54,7 +54,7 @@ def consolidate(dict1, dict2):
 
 EdgeTuple = collections.namedtuple('EdgeTuple', ['start','end','edge'])
 
-def createProject(path, notify=None, base=None, name=None, suffixes=[], projectModelFactory=imageProjectModelFactory,
+def createProject(path, notify=None, base=None, name=None, timestr = None, suffixes=[], projectModelFactory=imageProjectModelFactory,
                   organization=None):
     """
         This utility function creates a ProjectModel given a directory.
@@ -114,10 +114,17 @@ def createProject(path, notify=None, base=None, name=None, suffixes=[], projectM
     existingProject = projectFile.endswith(".json")
     if not existingProject:
         image = projectFile
+        #Compatible with new maskgen.
         if name is None:
             projectFile = projectFile[0:projectFile.rfind(".")] + ".json"
         else:
             projectFile = os.path.abspath(os.path.join(path,name + ".json"))
+        #Compatible with Xu's project with time.
+        if not timestr:
+            projectFile = projectFile[0:projectFile.rfind(".")] + ".json"
+        else:
+            projectFile = projectFile[0:projectFile.rfind(".")] + '_' + timestr + ".json"
+
     model = projectModelFactory(projectFile, notify=notify, baseImageFileName=image)
     if organization is not None:
         model.setProjectData('organization', organization)

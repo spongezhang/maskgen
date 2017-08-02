@@ -15,13 +15,13 @@
   "nodes": [
     {
       "op_type": "BaseSelection",
-      "image_directory": "/home/xuzhang/project/Medifor/data/NC2017_Dev1_Beta4/world",
+      "image_directory": "/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/images/train2014",
       "picklist": "../reference/jpg_list",
       "id": "0"
     },
     {
       "op_type": "ImageSelection",
-      "image_directory": "/home/xuzhang/project/Medifor/data/NC2017_Dev1_Beta4/world",
+      "image_directory": "/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/images/train2014",
       "picklist": "../reference/jpg_list",
       "id": "1"
     },
@@ -56,37 +56,8 @@
       "id": "4",
       "op_type": "PluginOperation",
       "arguments": {
-        "mediumh": {
-          "type": "int[128:256]"
-        },
-        "smallw": {
-          "type": "int[64:128]"
-        },
-        "largew": {
-          "type": "int[256:512]"
-        },
-        "largeh": {
-          "type": "int[256:512]"
-        },
-        "op": {
-          "type": "list",
-          "values" : ["slic"]
-        },
-        "smallh": {
-          "type": "int[64:128]"
-        },
-        "size": {
-          "type": "int[1:3]"
-        },
-        "mediumw": {
-          "type": "int[128:256]"
-        },
-        "alpha": {
-          "type": "value",
-          "value": "yes"
-        }
       },
-      "plugin": "SmartMaskSelector"
+      "plugin": "PreSegmentedSelectRegion"
     },
     {
       "op_type": "PluginOperation",

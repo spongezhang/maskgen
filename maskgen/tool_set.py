@@ -863,7 +863,7 @@ class ColorCompositeBuilder(CompositeBuilder):
        matches = np.any(compositeMask != [255, 255, 255], axis=2)
        result[matches] = 255
        globalchange, changeCategory, ratio = maskChangeAnalysis(result,
-                                                                     globalAnalysis=True)
+                        globalAnalysis=True)
        return finalNodeId + '_composite_mask.png',\
                       ImageWrapper(compositeMask),globalchange, changeCategory, ratio
 
@@ -950,7 +950,7 @@ def forcedSiftAnalysis(analysis, img1, img2, mask=None, linktype=None, arguments
     if linktype != 'image.image':
         return
     mask2 = mask.resize(img2.size, Image.ANTIALIAS) if mask is not None and img1.size != img2.size else mask
-    matrix,matchCount  = __sift(img1, img2, mask1=mask, mask2=mask2, arguments=arguments)
+    matrix,matchCount = __sift(img1, img2, mask1=mask, mask2=mask2, arguments=arguments)
     analysis['transform matrix'] = serializeMatrix(matrix)
 
 def siftAnalysis(analysis, img1, img2, mask=None, linktype=None, arguments=dict(), directory='.'):
@@ -963,26 +963,25 @@ def siftAnalysis(analysis, img1, img2, mask=None, linktype=None, arguments=dict(
     analysis['transform matrix'] = serializeMatrix(matrix)
 
 def boundingRegion (mask):
-        minregion = list(mask.shape)
-        maxregion = list((0, 0))
-        contours, hierarchy = cv2api.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for i in range(0, len(contours)):
-            try:
-                cnt = contours[i]
-                x, y, w, h = cv2.boundingRect(cnt)
-                if x < minregion[0]:
-                    minregion[0] = x
-                if x + w > maxregion[0]:
-                    maxregion[0] = x + w
-                if y < minregion[1]:
-                    minregion[1] = y
-                if y + h > maxregion[1]:
-                    maxregion[1] = y + h
-            except Exception as e:
-                logging.getLogger('maskgen').warning('Failed to find bounded region: ' + str(e))
-                continue
-        return tuple(minregion), tuple(maxregion)
-
+    minregion = list(mask.shape)
+    maxregion = list((0, 0))
+    contours, hierarchy = cv2api.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for i in range(0, len(contours)):
+        try:
+            cnt = contours[i]
+            x, y, w, h = cv2.boundingRect(cnt)
+            if x < minregion[0]:
+                minregion[0] = x
+            if x + w > maxregion[0]:
+                maxregion[0] = x + w
+            if y < minregion[1]:
+                minregion[1] = y
+            if y + h > maxregion[1]:
+                maxregion[1] = y + h
+        except Exception as e:
+            logging.getLogger('maskgen').warning('Failed to find bounded region: ' + str(e))
+            continue
+    return tuple(minregion), tuple(maxregion)
 
 def boundingRectange(mask):
     allpoints = []
@@ -1069,7 +1068,6 @@ def generateOpacityColorMask(initialImage, donorImage, outputImg, mask, donorMas
     max = np.max(result)
     return (result - min) / (max - min) * 255.0
 
-
 def optionalSiftAnalysis(analysis, img1, img2, mask=None, linktype=None, arguments=dict(),directory='.'):
     if 'location change' not in arguments or arguments['location change'] == 'no':
         return
@@ -1081,14 +1079,12 @@ def optionalSiftAnalysis(analysis, img1, img2, mask=None, linktype=None, argumen
     if matrix is not None:
         analysis['transform matrix'] = serializeMatrix(matrix)
 
-
 def createMask(img1, img2, invert=False, arguments={}, alternativeFunction=None,convertFunction=None):
     mask, analysis = __composeMask(img1, img2, invert, arguments=arguments,
                                    alternativeFunction=alternativeFunction,
                                    convertFunction=convertFunction)
     analysis['shape change'] = __sizeDiff(img1, img2)
     return ImageWrapper(mask), analysis
-
 
 def __indexOf(source, dest):
     positions = []
@@ -2493,19 +2489,45 @@ def widthandheight(img):
     h,w = bbox[1] - bbox[0], bbox[3] - bbox[2]
     return bbox[2],bbox[0],w,h
 
-def place_in_image(mask,image_to_place,image_to_cover, placement_center, rect = None):
-    x,y,w,h = widthandheight(mask)
+def minimum_bounding_box(image):
+    #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    selected = []
+    for cnt in contours:
+        try:
+            M = cv2.moments(cnt)
+            x = int(M['m10'] / M['m00'])
+            y = int(M['m01'] / M['m00'])
+            x1, y1, w, h = cv2.boundingRect(cnt)
+            selected.append((w,h,w*h,x,y))
+        except:
+            continue
+        
+    selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
+    
+    if len(selected) == 0:
+        print 'cannot determine contours'
+        x, y, w, h = tool_set.widthandheight(image)
+        selected = [ (w,h,w*h,x+w/2,y+h/2)]
+    
+    return selected[0]
+
+def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect = None):
+    #if not rect:
+    x, y, w, h = widthandheight(mask)
     if rect:
-        if w > rect[2]:
-            x = x + (w - rect[2]) / 2
+        if w>rect[2]:
+            x = x + (w-rect[2])/2
             w = rect[2]
-        if h > rect[3]:
-            y = y + (h - rect[3]) / 2
+        if h>rect[3]:
+            y = y + (h-rect[3])/2
             h = rect[3]
+
     w += w%2
     h += h%2
     x_offset = int(placement_center[0]) - int(math.floor(w/2))
     y_offset = int(placement_center[1]) - int(math.floor(h/2))
+
     if y_offset < 0:
         return None
     if x_offset < 0:
