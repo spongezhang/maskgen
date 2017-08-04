@@ -137,7 +137,11 @@ def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
         rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(x,y))
         img_to_paste = cv2.warpAffine(img_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         mask_of_image_to_paste= cv2.warpAffine(mask_of_image_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
+        #x,y is the Geometry center, which can't align to the crop center(bounding box center)
         w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+        #So we use this line to calculate the bbox centor
+        x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+
     else:
         rot_mat = np.array([[1,0,0],[0,1,0]]).astype('float')
 
@@ -146,7 +150,6 @@ def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
         xplacement = w / 2 + 1
     else:
         xplacement = random.randint(w / 2 + 1, img.size[0] - w / 2 - 1)
-
 
     if img.size[1] < h + 4:
         h = img.size[1] - 2
@@ -159,14 +162,17 @@ def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
     for i in range(2):
         for j in range(2):
             output_matrix[i, j] = rot_mat[i, j]
-            output_matrix[0, 2] = rot_mat[0, 2] + xplacement - x
-            output_matrix[1, 2] = rot_mat[1, 2] + yplacement - y
+    
+    #That is the correct offset
+    output_matrix[0,2] = rot_mat[0,2] + xplacement - x - w1/2
+    output_matrix[1,2] = rot_mat[1,2] + yplacement - y - h1/2
 
     return output_matrix, tool_set.place_in_image(
                           ImageWrapper(img_to_paste).to_mask().to_array(),
                           img_to_paste,
                           np.asarray(img),
                           (xplacement, yplacement),
+                        #x,y have no use
                           rect=(x, y, w, h))
 
 def transform(img,source,target,**kwargs):

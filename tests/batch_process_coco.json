@@ -61,7 +61,7 @@
     },
     {
       "op_type": "PluginOperation",
-      "plugin": "AutoPasteSplice",
+      "plugin": "PasteSplice",
       "id": "5",
       "arguments": {
         "approach": {

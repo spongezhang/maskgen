@@ -2528,10 +2528,10 @@ def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect
     x_offset = int(placement_center[0]) - int(math.floor(w/2))
     y_offset = int(placement_center[1]) - int(math.floor(h/2))
 
-    if y_offset < 0:
-        return None
-    if x_offset < 0:
-        return None
+    #if y_offset < 0:
+    #    return None
+    #if x_offset < 0:
+    #    return None
     image_to_cover = np.copy(image_to_cover)
     flipped_mask = 255 - mask
     for c in range(0, 3):
