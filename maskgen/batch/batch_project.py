@@ -256,6 +256,7 @@ def pickImageIterator(specification, spec_name, global_state):
         return element
 
 def pickImage(node, global_state={}):
+    print('run pick image')
     with global_state['picklistlock']:
         listing = []
         if node['picklist'] not in global_state:
@@ -407,7 +408,7 @@ class BaseSelectionOperation(BatchOperation):
         @rtype: scenario_model.ImageProjectModel
         """
         manager = global_state['permutegroupsmanager']
-        
+        print('COCO_flag: {}'.format(COCO_flag)) 
         if COCO_flag:
             pick = pickImage_COCO(node,global_state =global_state)
         else:
@@ -799,7 +800,7 @@ def main():
     parser.add_argument('--workdir',required=False,help='directory to maintain and look for lock list, logging and permutation files')
     parser.add_argument('--results', required=True, help='project results directory')
     parser.add_argument('--loglevel', required=False, help='log level')
-    parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')
+    parser.add_argument('--graph', required=False, action='store_true',help='create graph PNG file')
     parser.add_argument('--COCO_flag', required=False, action='store_true', help='whether to use COCO dataset.')
     parser.add_argument("--COCO_Dir", nargs='?', type=str, default = '/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
 ,help="Directory of MS COCO dataset.")
@@ -819,17 +820,34 @@ def main():
                    'project': batchProject,
                    'workdir': workdir,
                    'count': IntObject(int(args.count )) if args.count else None,
-                   'permutegroupsmanager' : PermuteGroupManager(dir=workdir)
+                   'permutegroupsmanager' : PermuteGroupManager(dir=workdir),
+                   'picklistlock' : Lock()
     }
+    
     batchProject.loadPermuteGroups(threadGlobalState)
+
+    global COCO_flag
+    COCO_flag = args.COCO_flag
     
     if COCO_flag:
+        print('set COCO Flag')
         dataDir = args.COCO_Dir
+    
+    global coco
+    annFile='%s/annotations/instances_%s.json'%(dataDir,dataType)
+    coco = COCO(annFile)
+    global imgIds
+    imgIds = coco.getImgIds()
+
+    print('start dump')
     if args.graph is not None:
         batchProject.dump(threadGlobalState)
     threads_count = args.threads if args.threads else 1
     threads = []
     name = 1
+    
+    print('begin thread')
+
     for i in range(int(threads_count)):
         name += 1
         t = Thread(target=thread_worker,name=str(name))
