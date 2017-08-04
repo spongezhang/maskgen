@@ -256,23 +256,18 @@ def pickImageIterator(specification, spec_name, global_state):
         return element
 
 def pickImage(node, global_state={}):
-    print('run pick image')
     with global_state['picklistlock']:
         listing = []
         if node['picklist'] not in global_state:
             if not os.path.exists(node['image_directory']):
                 raise ValueError("ImageSelection missing valid image_directory: " + node['image_directory'])
             #listing = os.listdir(node['image_directory'])
-            #print(node['image_directory'])
             print(node['image_directory'] + '/' + node['picklist'] + '.txt')
             if os.path.exists(node['image_directory'] + '/' + node['picklist'] + '.txt'):
                with open(node['image_directory'] + '/' + node['picklist'] + '.txt', 'r') as fp:
                   for line in fp.readlines():
-                      #print(line)
                       line = line.strip()
                       listing.append(line)
-                      #if line in listing:
-                          #listing.remove(line)
             global_state[node['picklist']] = listing
         else:
             listing = global_state[node['picklist']]
@@ -291,10 +286,7 @@ def pickImage(node, global_state={}):
 
 def pickImage_COCO(node, global_state={}):
     with global_state['picklistlock']:
-        #print(len(imgIds))
         img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
-        #print('haha')
-        #print(img['file_name'])
         return os.path.join(node['image_directory'], img['file_name'])
 
 def pickImage_COCO_with_Mask(node, global_state={}):
@@ -408,7 +400,6 @@ class BaseSelectionOperation(BatchOperation):
         @rtype: scenario_model.ImageProjectModel
         """
         manager = global_state['permutegroupsmanager']
-        print('COCO_flag: {}'.format(COCO_flag)) 
         if COCO_flag:
             pick = pickImage_COCO(node,global_state =global_state)
         else:
@@ -830,7 +821,6 @@ def main():
     COCO_flag = args.COCO_flag
     
     if COCO_flag:
-        print('set COCO Flag')
         dataDir = args.COCO_Dir
     
     global coco
@@ -839,14 +829,12 @@ def main():
     global imgIds
     imgIds = coco.getImgIds()
 
-    print('start dump')
     if args.graph is not None:
         batchProject.dump(threadGlobalState)
     threads_count = args.threads if args.threads else 1
     threads = []
     name = 1
     
-    print('begin thread')
 
     for i in range(int(threads_count)):
         name += 1
