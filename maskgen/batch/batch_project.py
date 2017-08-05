@@ -303,6 +303,7 @@ def pickImage_COCO_with_Mask(node, global_state={}):
         else:
             #try multiple times to find out spliced area that has proper size
             num_trial = 0
+            #number of max trial
             max_trial = 5
             while num_trial<max_trial:
                 real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
