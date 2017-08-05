@@ -301,15 +301,22 @@ def pickImage_COCO_with_Mask(node, global_state={}):
             real_mask = np.zeros((w, h), dtype=np.uint8)
             real_mask[w/4:3*w/4,h/4:3*h/4] = 1
         else:
-            real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
+            #try multiple times to find out spliced area that has proper size
+            num_trial = 0
+            max_trial = 5
+            while num_trial<max_trial:
+                real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
+                real_mask = real_mask.astype(np.uint8)
+                x, y, w, h = tool_set.widthandheight(real_mask)
+                if w*h>32*32:
+                    break
+                num_trial = num_trial+1
 
-        real_mask = real_mask.astype(np.uint8)
-        x, y, w, h = tool_set.widthandheight(real_mask)
-        if w*h<32*32:
-            tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
-            h,w = tmp_img.size
-            real_mask = np.zeros((w, h), dtype=np.uint8)
-            real_mask[w/4:3*w/4,h/4:3*h/4] = 1
+            if num_trial==max_trial:
+                tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
+                h,w = tmp_img.size
+                real_mask = np.zeros((w, h), dtype=np.uint8)
+                real_mask[w/4:3*w/4,h/4:3*h/4] = 1
 
         real_mask = (1-real_mask.astype(np.uint8))*255
         
