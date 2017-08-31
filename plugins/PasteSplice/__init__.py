@@ -11,6 +11,7 @@ import numpy as np
 import math
 from skimage.restoration import denoise_tv_bregman
 from maskgen import cv2api
+#import maskgen.tool_set
 
 from sys import platform as sys_pf
 if sys_pf == 'darwin':
@@ -37,9 +38,9 @@ class TransformedEllipse(Ellipse):
             .scale(self.fix_x, 1) \
             .translate(*center)
 
-
 def minimum_bounding_box(image):
-    (contours, _) = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     selected = []
     for cnt in contours:
         try:
@@ -47,6 +48,9 @@ def minimum_bounding_box(image):
             x = int(M['m10'] / M['m00'])
             y = int(M['m01'] / M['m00'])
             x1, y1, w, h = cv2.boundingRect(cnt)
+            #To align with the width and height. Bounding box info is always 1 pixel larger than that.
+            w = w-1
+            h = h-1
             selected.append((w,h,w*h,x,y))
         except:
             continue
@@ -54,7 +58,6 @@ def minimum_bounding_box(image):
     selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
     
     if len(selected) == 0:
-        print 'cannot determine contours'
         x, y, w, h = tool_set.widthandheight(image)
         selected = [ (w,h,w*h,x+w/2,y+h/2)]
     
@@ -132,15 +135,22 @@ def build_random_transform(img_to_paste, mask_of_image_to_paste, image_center):
     return cv2.getRotationMatrix2D(image_center, angle, scale)
 
 def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
-    w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+    w, h, area, cx_gra, cy_gra = minimum_bounding_box(mask_of_image_to_paste)
+    x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+
+    #print('origin bounding box 1: {}, {}, {}, {}'.format(cx_gra,cy_gra,w,h))
+    #print('origin bounding box 2: {}, {}, {}, {}'.format(x,y,w1,h1))
+
     if not simple:
-        rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(x,y))
+        rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(cx_gra,cy_gra))
         img_to_paste = cv2.warpAffine(img_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         mask_of_image_to_paste= cv2.warpAffine(mask_of_image_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         #x,y is the Geometry center, which can't align to the crop center(bounding box center)
-        w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+        w, h, area, cx, cy = minimum_bounding_box(mask_of_image_to_paste)
         #So we use this line to calculate the bbox centor
         x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+        #print('transformed bounding box 1: {}, {}, {}, {}'.format(cx,cy,w,h))
+        #print('transformed bounding box 2: {}, {}, {}, {}'.format(x,y,w1,h1))
 
     else:
         rot_mat = np.array([[1,0,0],[0,1,0]]).astype('float')
