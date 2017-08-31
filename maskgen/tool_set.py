@@ -2489,29 +2489,6 @@ def widthandheight(img):
     h,w = bbox[1] - bbox[0], bbox[3] - bbox[2]
     return bbox[2],bbox[0],w,h
 
-def minimum_bounding_box(image):
-    #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    contours, hierarchy = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    selected = []
-    for cnt in contours:
-        try:
-            M = cv2.moments(cnt)
-            x = int(M['m10'] / M['m00'])
-            y = int(M['m01'] / M['m00'])
-            x1, y1, w, h = cv2.boundingRect(cnt)
-            selected.append((w,h,w*h,x,y))
-        except:
-            continue
-        
-    selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
-    
-    if len(selected) == 0:
-        print 'cannot determine contours'
-        x, y, w, h = tool_set.widthandheight(image)
-        selected = [ (w,h,w*h,x+w/2,y+h/2)]
-    
-    return selected[0]
-
 def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect = None):
     #if not rect:
     x, y, w, h = widthandheight(mask)

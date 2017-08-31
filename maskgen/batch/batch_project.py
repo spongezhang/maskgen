@@ -287,6 +287,7 @@ def pickImage(node, global_state={}):
 def pickImage_COCO(node, global_state={}):
     with global_state['picklistlock']:
         img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
+        print('Base image name: {}'.format(img['file_name']))
         return os.path.join(node['image_directory'], img['file_name'])
 
 def pickImage_COCO_with_Mask(node, global_state={}):
@@ -294,6 +295,7 @@ def pickImage_COCO_with_Mask(node, global_state={}):
         img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
         annIds = coco.getAnnIds(imgIds=img['id'], iscrowd=None)
         anns = coco.loadAnns(annIds)
+        print('Donor image name: {}'.format(img['file_name']))
         
         if len(anns)==0:
             tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
@@ -304,11 +306,12 @@ def pickImage_COCO_with_Mask(node, global_state={}):
             #try multiple times to find out spliced area that has proper size
             num_trial = 0
             #number of max trial
-            max_trial = 5
+            max_trial = min(len(anns),5)
             while num_trial<max_trial:
                 real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
                 real_mask = real_mask.astype(np.uint8)
                 x, y, w, h = tool_set.widthandheight(real_mask)
+                print('Height: {}, Width: {}, Area: {}'.format(w,h,w*h))
                 if w*h>32*32:
                     break
                 num_trial = num_trial+1
@@ -830,12 +833,11 @@ def main():
     
     if COCO_flag:
         dataDir = args.COCO_Dir
-    
-    global coco
-    annFile='%s/annotations/instances_%s.json'%(dataDir,dataType)
-    coco = COCO(annFile)
-    global imgIds
-    imgIds = coco.getImgIds()
+        global coco
+        annFile='%s/annotations/instances_%s.json'%(dataDir,dataType)
+        coco = COCO(annFile)
+        global imgIds
+        imgIds = coco.getImgIds()
 
     if args.graph is not None:
         batchProject.dump(threadGlobalState)

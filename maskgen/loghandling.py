@@ -44,7 +44,7 @@ def set_logging(directory=None):
 
     dir = directory if directory is not None and os.path.isdir(directory) else '.'
     logfile = os.path.join(os.getenv("HOME"),'maskgen.log') if not os.access(dir,os.W_OK) else os.path.join(dir,'maskgen.log')
-
+    print('log file name : {}'.format(logfile))
     fh = MaskGenTimedRotatingFileHandler(logfile)
 
     fh.setLevel(logging.INFO)
