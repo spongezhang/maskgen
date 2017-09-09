@@ -311,7 +311,6 @@ def pickImage_COCO_with_Mask(node, global_state={}):
                 real_mask = coco.annToMask(anns[np.random.randint(0,len(anns))])
                 real_mask = real_mask.astype(np.uint8)
                 x, y, w, h = tool_set.widthandheight(real_mask)
-                print('Height: {}, Width: {}, Area: {}'.format(w,h,w*h))
                 if w*h>32*32:
                     break
                 num_trial = num_trial+1

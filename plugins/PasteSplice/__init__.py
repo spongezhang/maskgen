@@ -135,17 +135,20 @@ def build_random_transform(img_to_paste, mask_of_image_to_paste, image_center):
     return cv2.getRotationMatrix2D(image_center, angle, scale)
 
 def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
+    #get gravity center for rotation
     w, h, area, cx_gra, cy_gra = minimum_bounding_box(mask_of_image_to_paste)
+    #bounding box center for simple case.
     x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
 
     #print('origin bounding box 1: {}, {}, {}, {}'.format(cx_gra,cy_gra,w,h))
     #print('origin bounding box 2: {}, {}, {}, {}'.format(x,y,w1,h1))
 
     if not simple:
+        #use gravity center to rotate
         rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(cx_gra,cy_gra))
         img_to_paste = cv2.warpAffine(img_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         mask_of_image_to_paste= cv2.warpAffine(mask_of_image_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
-        #x,y is the Geometry center, which can't align to the crop center(bounding box center)
+        #x,y is the Geometry center(gravity center), which can't align to the crop center(bounding box center)
         w, h, area, cx, cy = minimum_bounding_box(mask_of_image_to_paste)
         #So we use this line to calculate the bbox centor
         x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
