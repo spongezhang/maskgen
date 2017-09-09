@@ -443,6 +443,29 @@ class BaseSelectionOperation(BatchOperation):
         getNodeState(node_name, local_state)['node'] = local_state['model'].getNodeNames()[0]
         return local_state['model']
 
+class BaseAttachmentOperation(BatchOperation):
+
+    def execute(self, graph,node_name, node, connect_to_node_name, local_state={},global_state={}):
+        """
+        Represent the attachment node, attaching its name to the graph
+        :param graph:
+        :param node_name:
+        :param node:
+        :param connect_to_node_name:
+        :param local_state:
+        :param global_state:
+        :return:
+        @type graph: nx.DiGraph
+        @type node_name : str
+        @type node: Dict
+        @type connect_to_node_name : str
+        @type global_state: Dict
+        @type global_state: Dict
+        @rtype: scenario_model.ImageProjectModel
+        """
+        getNodeState(node_name, local_state)['node'] = local_state['start node name']
+        return local_state['model']
+
 class PluginOperation(BatchOperation):
     logger = logging.getLogger('maskgen')
 
@@ -504,6 +527,7 @@ class PluginOperation(BatchOperation):
             local_state['model'].selectImage(my_state['node'])
         return local_state['model']
 
+
 class InputMaskPluginOperation(PluginOperation):
     logger = logging.getLogger('maskgen')
 
@@ -541,14 +565,14 @@ class InputMaskPluginOperation(PluginOperation):
                         predecessors)
         args['skipRules'] = True
         args['sendNotifications'] = False
-        targetfile,params = self.imageFromPlugin(plugin_name, im, filename, **args)
+        targetfile,params = self.imageFromPlugin(plugin_name, im, filename, node_name, local_state, **args)
         my_state['output'] = targetfile
         if params is not None and type(params) == type({}):
             for k, v in params.iteritems():
                 my_state[k] = v
         return local_state['model']
 
-    def imageFromPlugin(self, filter, im, filename, **kwargs):
+    def imageFromPlugin(self, filter, im, filename, node_name, local_state, **kwargs):
         import tempfile
         """
           @type filter: str
@@ -572,8 +596,54 @@ class InputMaskPluginOperation(PluginOperation):
             raise ValueError("Plugin " + filter + " failed:" + msg)
         return target,params
 
-batch_operations = {'BaseSelection': BaseSelectionOperation(),'ImageSelection':ImageSelectionOperation(),
-                    'PluginOperation' : PluginOperation(),'InputMaskPluginOperation' : InputMaskPluginOperation()}
+class ImageSelectionPluginOperation(InputMaskPluginOperation):
+    logger = logging.getLogger('maskgen')
+
+
+    def imageFromPlugin(self, filter, im, filename, node_name, local_state, **kwargs):
+        import tempfile
+        """
+          @type filter: str
+          @type im: ImageWrapper
+          @type filename: str
+          @rtype: list of (str, list (str,str))
+        """
+        file = os.path.split(filename)[1]
+        file = file[0:file.rfind('.')]
+        target = os.path.join(tempfile.gettempdir(),  file+ '_' + filter + '.png')
+        shutil.copy2(filename, target)
+        params = {}
+        try:
+            extra_args, msg = plugins.callPlugin(filter, im, filename, target, **kwargs)
+            if 'file' not in extra_args:
+                raise ValueError('file key expected in result to identify chosen file')
+            else:
+                pick = extra_args.pop('file')
+                logging.getLogger('maskgen').info('Thread {} picking file {}'.format(currentThread().getName(), pick))
+                getNodeState(node_name, local_state)['node'] = local_state['model'].addImage(pick)
+            if extra_args is not None and type(extra_args) == type({}):
+                for k, v in extra_args.iteritems():
+                    if k not in kwargs:
+                        params[k] = v
+            os.remove(target)
+        except Exception as e:
+            msg = str(e)
+            raise ValueError("Plugin " + filter + " failed:" + msg)
+        return target,params
+
+#<<<<<<< HEAD
+#batch_operations = {'BaseSelection': BaseSelectionOperation(),'ImageSelection':ImageSelectionOperation(),
+#                    'PluginOperation' : PluginOperation(),'InputMaskPluginOperation' : InputMaskPluginOperation()}
+#=======
+
+batch_operations = {'BaseSelection': BaseSelectionOperation(),
+                    'ImageSelection':ImageSelectionOperation(),
+                    'ImageSelectionPluginOperation':ImageSelectionPluginOperation(),
+                    'PluginOperation' : PluginOperation(),
+                    'InputMaskPluginOperation' : InputMaskPluginOperation(),
+                    'NodeAttachment': BaseAttachmentOperation()}
+
+#>>>>>>> 34e0c70729949db083ddbc94f0d711b9eb68ed0a
 
 def getOperationGivenDescriptor(descriptor):
     """
@@ -582,6 +652,26 @@ def getOperationGivenDescriptor(descriptor):
     @rtype : BatchOperation
     """
     return batch_operations[descriptor['op_type']]
+
+def findBaseNodes(graph, node):
+    predecessors = graph.predecessors(node)
+    if len(predecessors) == 0:
+        return [node]
+    nodes = []
+    for pred in predecessors:
+        nodes.extend(findBaseNodes(graph,pred))
+    return nodes
+
+def findBaseImageNodes(graph,node):
+    """
+
+    :param graph:
+    :param node:
+    :return:
+    @type graph: nx.DiGraph
+    """
+    return [node for node in findBaseNodes(graph,node) if
+            graph.node[node]['op_type'] == 'BaseSelection']
 
 class BatchProject:
     logger = logging.getLogger('maskgen')
@@ -606,6 +696,57 @@ class BatchProject:
 
     def getName(self):
         return self.G.graph['name'] if 'name' in self.G.graph else 'Untitled'
+
+    def executeForProject(self, project, nodes):
+        recompress = self.G.graph['recompress'] if 'recompress' in self.G.graph else False
+        global_state = {'picklists_files': {},
+                             'project': self,
+                             'workdir': project.get_dir(),
+                             'count': None,
+                             'permutegroupsmanager': PermuteGroupManager(dir=project.get_dir())
+                             }
+        local_state = self._buildLocalState()
+        mydata = local()
+        mydata.current_local_state = local_state
+        self.logger.info('Thread {} building project with global state: {} '.format(currentThread().getName(),
+                                                                                    str(global_state)))
+        local_state['model'] = project
+        base_node = self._findBase()
+        try:
+            for node in nodes:
+                # establish the starting point
+                local_state['start node name'] = node
+                completed = []
+                queue = [base_node]
+                queue.extend(self.G.successors(base_node))
+                while len(queue) > 0:
+                    op_node_name = queue.pop(0)
+                    if op_node_name in completed:
+                        continue
+                    predecessors = list(self.G.predecessors(op_node_name))
+                    # skip if a predecessor is missing
+                    if len([pred for pred in predecessors if pred not in completed]) > 0:
+                        continue
+                    connecttonodes = [predecessor for predecessor in self.G.predecessors(op_node_name)
+                                      if self.G.node[predecessor]['op_type'] != 'InputMaskPluginOperation']
+
+                    connect_to_node_name = connecttonodes[0] if len(connecttonodes) > 0 else None
+                    self._execute_node(op_node_name, connect_to_node_name, local_state, global_state)
+                    completed.append(op_node_name)
+                    self.logger.debug('{} Completed: {}'.format(currentThread().getName(), op_node_name))
+                    queue.extend(self.G.successors(op_node_name))
+            if recompress:
+                self.logger.debug("Run Save As")
+                op = group_operations.CopyCompressionAndExifGroupOperation(project)
+                op.performOp()
+            local_state['model'].renameFileImages()
+            if 'archives' in global_state:
+                project.export(global_state['archives'])
+        except Exception as e:
+            project_name = project.getName()
+            logging.getLogger('maskgen').error('Creation of project {} failed: {}'.format(project_name, str(e)))
+            return False
+        return True
 
     def executeOnce(self, global_state=dict()):
         #print 'next ' + currentThread().getName()
@@ -632,9 +773,12 @@ class BatchProject:
                 if len([pred for pred in predecessors if pred not in completed]) > 0:
                     continue
                 connecttonodes = [predecessor for predecessor in self.G.predecessors(op_node_name)
-                            if self.G.node[predecessor]['op_type'] != 'InputMaskPluginOperation']
-
-                connect_to_node_name = connecttonodes[0] if len(connecttonodes) > 0 else None
+                                  if self.G.node[predecessor]['op_type'] != 'InputMaskPluginOperation']
+                node = self.G.node[op_node_name]
+                if len(connecttonodes) > 0 and 'source' in node:
+                    connect_to_node_name = node['source']
+                else:
+                    connect_to_node_name = connecttonodes[0] if len(connecttonodes) > 0 else None
                 self._execute_node(op_node_name, connect_to_node_name, local_state, global_state)
                 completed.append(op_node_name)
                 self.logger.debug('{} Completed: {}'.format(currentThread().getName (),op_node_name))
@@ -738,7 +882,7 @@ class BatchProject:
         tops = self._findTops()
         for top in tops:
             top_node = self.G.node[top]
-            if top_node['op_type'] == 'BaseSelection':
+            if top_node['op_type'] in ['BaseSelection' , 'NodeAttachment']:
                 return top
         return None
 

@@ -140,6 +140,11 @@ class MakeGenUI(Frame):
                               ' \nProject Version: ' + self.scModel.getGraph().getProjectVersion() +
                               ' \nOperations: ' + operationVersion() )
 
+    def _merge_project(self, path):
+        model = ImageProjectModel(path)
+        self.scModel.mergeProject(model)
+        self.canvas.reformat()
+
     def _open_project(self, path):
         self.scModel.load(path)
         if self.scModel.getProjectData('typespref') is None:
@@ -211,11 +216,13 @@ class MakeGenUI(Frame):
             #val.close()
 
     def recomputeedgemask(self):
-        self.scModel.reproduceMask()
+        errors = self.scModel.reproduceMask()
         nim = self.scModel.nextImage()
         self.img3 = ImageTk.PhotoImage(imageResizeRelative(self.scModel.maskImage(), (250, 250), nim.size).toPIL())
         self.img3c.config(image=self.img3)
         self.maskvar.set(self.scModel.maskStats())
+        if errors is not None and len(errors) > 0:
+            tkMessageBox.showerror('Recompute Mask Error','\n'.join(errors[(max(0,len(errors)-5)):]))
 
     def recomputedonormask(self):
 
@@ -248,12 +255,18 @@ class MakeGenUI(Frame):
         if d.argvalues is None:
             return
         skipDonorAnalysis =  'homography' in d.argvalues and d.argvalues['homography'] == 'None'
-        self.scModel.reproduceMask(skipDonorAnalysis=skipDonorAnalysis,analysis_params=d.argvalues)
+        errors = self.scModel.reproduceMask(skipDonorAnalysis=skipDonorAnalysis,analysis_params=d.argvalues)
         nim = self.scModel.nextImage()
         self.img3 = ImageTk.PhotoImage(imageResizeRelative(self.scModel.maskImage(), (250, 250), nim.size).toPIL())
         self.img3c.config(image=self.img3)
+        if errors is not None and len(errors) > 0:
+            tkMessageBox.showerror('Recompute Mask Error','\n'.join(errors[(max(0,len(errors)-5)):]))
 
     def _preexport(self):
+        if self.scModel.hasSkippedEdges():
+            if not tkMessageBox.askokcancel('Skipped Link Masks','Some link are missing edge masks and analysis. \n' +
+                                                          'The link analysis will begin now and may take a while.'):
+                return False
         errorList = self.scModel.validate(external=True)
         if errorList is not None and len(errorList) > 0:
             errorlistDialog = DecisionListDialog(self, errorList, "Validation Errors")
@@ -263,10 +276,11 @@ class MakeGenUI(Frame):
         self.scModel.executeFinalNodeRules()
         processProjectProperties(self.scModel)
         self.getproperties()
-        self.scModel.removeCompositesAndDonors()
+        return True
 
     def export(self):
-        self._preexport()
+        if not self._preexport():
+            return
         val = tkFileDialog.askdirectory(initialdir='.', title="Export To Directory")
         if (val is not None and len(val) > 0):
             errorList = self.scModel.export(val)
@@ -279,7 +293,8 @@ class MakeGenUI(Frame):
                 tkMessageBox.showinfo("Export", "Complete")
 
     def exporttoS3(self):
-        self._preexport()
+        if not self._preexport():
+            return
         info = self.prefLoader.get_key('s3info')
         val = tkSimpleDialog.askstring("S3 Bucket/Folder", "Bucket/Folder",
                                        initialvalue=info if info is not None else '')
@@ -383,6 +398,15 @@ class MakeGenUI(Frame):
         skip_compare_status = d.choice if d.choice is not None else skip_compare_status
         self.prefLoader.save('skip_compare',skip_compare_status=='yes')
 
+    def setSkipThreads(self):
+        skipped_threads = self.prefLoader.get_key('skipped_threads',2)
+        d = SelectDialog(self,
+                         "Skip Link Threads",
+                         "Link Comparison threads used during validation",
+                         [2, 3, 4],
+                         initial_value=skipped_threads)
+        skipped_threads = d.choice if d.choice is not None else skipped_threads
+        self.prefLoader.save('skipped_threads',int(skipped_threads))
 
     def undo(self):
         self.scModel.undo()
@@ -635,6 +659,23 @@ class MakeGenUI(Frame):
     def operationsgroupmanager(self):
         d = GroupManagerDialog(self, groupOpLoader)
 
+    def merge(self):
+        val = tkFileDialog.askopenfilename(initialdir=self.scModel.get_dir(), title="Select project file",
+                                           filetypes=[("json files", "*.json"), ("tgz files", "*.tgz")])
+        if val is None or val == '':
+            return
+        try:
+            self._merge_project(val)
+        except Exception as e:
+            backup = val + '.bak'
+            if os.path.exists(backup):
+                if tkMessageBox.askquestion('Project Corruption Error',
+                                            str(e) + ".  Do you want to restore from the backup?") == 'yes':
+                    shutil.copy(backup, val)
+                    self._merge_project(val)
+            else:
+                tkMessageBox.showerror('Project Corruption Error', str(e))
+
     def quit(self):
         self.save()
         Frame.quit(self)
@@ -663,7 +704,7 @@ class MakeGenUI(Frame):
         self.canvas.compareto()
 
     def viewcomposite(self):
-        #ps  = self.scModel.getProbeSet()
+        ps  = self.scModel.getProbeSet(compositeBuilders=[ColorCompositeBuilder,graph_rules.Jpeg2000CompositeBuilder])
         composite = self.scModel.constructComposite()
         if composite is not None:
             CompositeViewDialog(self, self.scModel.start, composite, self.scModel.startImage())
@@ -701,7 +742,7 @@ class MakeGenUI(Frame):
         return error_count == 0
 
     def viewdonor(self):
-        im,baseIm = self.scModel.getDonorAndBaseImages(force=True)
+        im,baseIm = self.scModel.getDonorAndBaseImage()
         if im is not None:
             CompositeViewDialog(self, self.scModel.start, im, baseIm)
 
@@ -849,6 +890,7 @@ class MakeGenUI(Frame):
         settingsmenu.add_command(label="System Properties", command=self.getsystemproperties)
         settingsmenu.add_command(label="File Types", command=self.setPreferredFileTypes)
         settingsmenu.add_command(label="Skip Link Compare", command=self.setSkipStatus)
+        settingsmenu.add_command(label="Skip Link Threads", command=self.setSkipThreads)
         settingsmenu.add_command(label="Autosave", command=self.setautosave)
         for k,v in self.notifiers.get_properties().iteritems():
             settingsmenu.add_command(label=v, command=partial(self.setproperty,k,v))
@@ -857,6 +899,7 @@ class MakeGenUI(Frame):
         filemenu.add_command(label="About", command=self.about)
         filemenu.add_command(label="Open", command=self.open, accelerator="Ctrl+O")
         filemenu.add_command(label="Open S3", command=self.openS3, accelerator="Ctrl+O")
+        filemenu.add_command(label="Merge", command=self.merge)
         filemenu.add_command(label="New", command=self.new, accelerator="Ctrl+N")
         filemenu.add_command(label="Save", command=self.save, accelerator="Ctrl+S")
         filemenu.add_command(label="Save As", command=self.saveas)

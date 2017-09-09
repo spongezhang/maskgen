@@ -120,6 +120,7 @@ def buildMasksFromCombinedVideo(filename,time_manager):
     capIn = cv2.VideoCapture(filename)
     capOut = tool_set.GrayBlockWriter(filename[0:filename.rfind('.')],
                              capIn.get(cv2.cv.CV_CAP_PROP_FPS))
+    amountRead = 0
     try:
         ranges = []
         startTime = None
@@ -127,38 +128,42 @@ def buildMasksFromCombinedVideo(filename,time_manager):
         count = 0
         THRESH=16
         HISYORY=10
-        fgbg = cv2.BackgroundSubtractorMOG2(varThreshold=THRESH,history=HISYORY,bShadowDetection=False)
-        LEARN_RATE = 0.03
-        first = True
+        #fgbg = cv2.BackgroundSubtractorMOG2(varThreshold=THRESH,history=HISYORY,bShadowDetection=False)
+        #LEARN_RATE = 0.03
+        #first = True
         sample = None
+        baseline = None
         kernel = np.ones((3, 3), np.uint8)
         while capIn.isOpened():
             ret, frame = capIn.read()
             if not ret:
                 break
+            amountRead+=1
             if sample is None:
-                sample = np.ones(frame[:, :, 0].shape) * 255
+                sample = np.ones(frame[:, :, 0].shape).astype('uint8')
+                baseline = np.ones(frame[:, :, 0].shape).astype('uint8') * 135
             elapsed_time = capIn.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
             time_manager.updateToNow(elapsed_time)
             if time_manager.isBeforeTime():
                 continue
             if time_manager.isPastTime():
                 break
-            thresh = fgbg.apply(frame, learningRate=LEARN_RATE)
-            if first:
-                first = False
-                continue
+            #thresh = fgbg.apply(frame, learningRate=LEARN_RATE)
+            #if first:
+            #    first = False
+           #     continue
             #      gray = frame[:,:,1]
             #      laplacian = cv2.Laplacian(frame,cv2.CV_64F)
             #      thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY, 11, 1)
             #      ret, thresh = cv2.threshold(gray,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+            thresh = frame[:,:,1] - baseline
             result = thresh.copy()
             result[:, :] = 0
-            result[abs(thresh) > 0.000001] = 255
-            opening = cv2.morphologyEx(result, cv2.MORPH_OPEN, kernel)
-            closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
-            totalMatch = sum(sum(closing))
-            result = closing
+            result[abs(thresh) > 1] = 255
+            #opening = cv2.morphologyEx(result, cv2.MORPH_OPEN, kernel)
+            #closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
+            totalMatch = sum(sum(result))
+            #result = result
             if totalMatch > 0:
                 count += 1
                 result = result.astype('uint8')
@@ -196,6 +201,8 @@ def buildMasksFromCombinedVideo(filename,time_manager):
     finally:
         capIn.release()
         capOut.close()
+    if amountRead == 0:
+        raise ValueError('Mask Computation Failed to a read videos.  FFMPEG and OPENCV may not be installed correctly or the videos maybe empty.')
     return ranges
 
 
@@ -357,25 +364,73 @@ def getMeta(file, with_frames=False, show_streams=False):
         p.stderr.close()
     return meta, frames
 
-def runffmpeg(args):
+def get_ffmpeg_version():
+    ffcommand = os.getenv('MASKGEN_FFMPEG', 'ffmpeg')
+    command = [ffcommand,'-version']
+    try:
+        pcommand = Popen(command, stdout=PIPE, stderr=PIPE)
+        stdout, stderr = pcommand.communicate()
+        if pcommand.returncode != 0:
+            logging.getLogger('maskgen').error(str(stderr) if stderr is not None else '')
+        else:
+            return stdout.split()[2][0:3]
+    except OSError as e:
+        logging.getLogger('maskgen').error("FFmpeg not installed")
+        logging.getLogger('maskgen').error(str(e))
+    return '?'
+
+def runffmpeg(args, noOutput=True):
     ffcommand = os.getenv('MASKGEN_FFMPEG', 'ffmpeg')
     command = [ffcommand]
     command.extend(args)
     try:
-        p = Popen(command, stdout=PIPE, stderr=PIPE).communicate()
+        pcommand =  Popen(command, stdout=PIPE if not noOutput else None, stderr=PIPE)
+        stdout, stderr =  pcommand.communicate()
+        if pcommand.returncode != 0:
+            error =  str(stdout) + (str(stderr) if stderr is not None else '')
+            raise ValueError(error)
     except OSError as e:
         logging.getLogger('maskgen').error( "FFmpeg not installed")
         logging.getLogger('maskgen').error(str(e))
         raise e
 
+def _aggregate(k, oldValue, newValue, summary):
+    """
+    Apply to numeric values, aummarize the diffence
+    :param k:
+    :param oldValue:
+    :param newValue:
+    :param summary:
+    :return:
+    """
+    try:
+        num1 = float(oldValue)
+        num2 = float(newValue)
+        if k in summary:
+            summary[k] =  (summary[k][0]+(num2 - num1),summary[k][1]+1)
+        else:
+            summary[k] = ((num2 - num1), 1)
+        return True
+    except:
+        return False
+
 # str(ffmpeg.compareMeta({'f':1,'e':2,'g':3},{'f':1,'y':3,'g':4}))=="{'y': ('a', 3), 'e': ('d', 2), 'g': ('c', 4)}"
-def compareMeta(oneMeta, twoMeta, skipMeta=None):
+def compareMeta(oneMeta, twoMeta, skipMeta=None, streamId=0,  meta_diff=None, summary=dict()):
     diff = {}
     for k, v in oneMeta.iteritems():
         if skipMeta is not None and k in skipMeta:
             continue
         if k in twoMeta and twoMeta[k] != v:
-            diff[k] = ('change', v, twoMeta[k])
+            meta_key = str(streamId) + ':' + k
+            if meta_diff is not None and  meta_key not in meta_diff:
+                diff[k] = ('change', v, twoMeta[k])
+                meta_diff[meta_key] = ('change', v, twoMeta[k])
+            elif meta_diff is not None:
+                if meta_diff[meta_key][2] != twoMeta[k]:
+                    if not _aggregate(k,v, twoMeta[k],summary):
+                        diff[k] = ('change', v, twoMeta[k])
+            else:
+                diff[k] = ('change', v, twoMeta[k])
         if k not in twoMeta:
             diff[k] = ('delete', v)
     for k, v in twoMeta.iteritems():
@@ -406,9 +461,17 @@ def getIntFromPacket(key, packet):
             pass
     return 0
 
+def _updateSummary(summary,streamId,apos, bpos, aptime):
+    diff = {}
+    for k, v in summary.iteritems():
+        diff[str(streamId) + ':' + k + '.total'] = ('change',0,v[0])
+        diff[str(streamId) + ':' + k + '.frames'] = ('change',0,v[1])
+        diff[str(streamId) + ':' + k + '.average'] = ('change',0,v[0]/v[1])
+    return ('change', apos, bpos, aptime, diff)
+
 # video_tools.compareStream([{'i':0,'h':1},{'i':1,'h':1},{'i':2,'h':1},{'i':3,'h':1},{'i':5,'h':2},{'i':6,'k':3}],[{'i':0,'h':1},{'i':3,'h':1},{'i':4,'h':9},{'i':4,'h':2}], orderAttr='i')
 # [('delete', 1.0, 2.0, 2), ('add', 4.0, 4.0, 2), ('delete', 5.0, 6.0, 2)]
-def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
+def compareStream(a, b, orderAttr='pkt_pts_time', streamId=0, meta_diff=dict(), skipMeta=None, counters={}):
     """
       Compare to lists of hash maps, generating 'add', 'delete' and 'change' records.
       An order attribute (time stamp) is provided as the orderAttr, to identify each individual record.
@@ -424,6 +487,10 @@ def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
     bptime = None
    # a = sorted(a,key=lambda apacket: apacket[orderAttr])
     #b = sorted(b, key=lambda apacket: apacket[orderAttr])
+    summary = dict()
+    summary_start_time = None
+    summary_start = None
+    summary_end = None
     while apos < len(a) and bpos < len(b):
         apacket = a[apos]
         if orderAttr not in apacket:
@@ -441,7 +508,10 @@ def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
         if aptime == bptime or \
                 (aptime < bptime and (apos+1) < len(a) and _getOrder(a[apos+1], orderAttr,aptime) > bptime) or \
                 (aptime > bptime and (bpos+1) < len(b) and _getOrder(b[bpos+1], orderAttr,bptime) < aptime):
-            metaDiff = compareMeta(apacket, bpacket, skipMeta=skipMeta)
+            summary_start_time = aptime if summary_start is None else summary_start_time
+            summary_start = apos if summary_start is None else summary_start
+            summary_end = apos
+            metaDiff = compareMeta(apacket, bpacket, skipMeta=skipMeta,streamId=streamId,meta_diff=meta_diff,summary=summary)
             if len(metaDiff) > 0:
                 diff.append(('change', apos, bpos, aptime, metaDiff))
             apos += 1
@@ -456,7 +526,7 @@ def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
                 if apos < len(a):
                     apacket = a[apos]
                     aptime = _getOrder(apacket, orderAttr,aptime)
-            diff.append(('delete', start, end, c))
+            #diff.append(('delete', start, end, c))
         elif aptime > bptime:
             start = bptime
             c = 0
@@ -467,7 +537,15 @@ def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
                 if bpos < len(b):
                     bpacket = b[bpos]
                     bptime = _getOrder(bpacket, orderAttr,bptime)
-            diff.append(('add', start, end, c))
+            # diff.append(('add', start, end, c))
+        else:
+            diff.append(_updateSummary(summary,streamId, summary_start,summary_end,summary_start_time))
+            summary_start_time = None
+            summary_start = None
+            summary_end = None
+            summary.clear()
+
+    diff.append(_updateSummary(summary,streamId, summary_start,summary_end,summary_start_time))
     if apos < len(a):
         aptime = start = _getOrder(a[apos], orderAttr,aptime)
         c = len(a) - apos
@@ -480,14 +558,15 @@ def compareStream(a, b, orderAttr='pkt_pts_time', skipMeta=None, counters={}):
         bpacket = b[len(b) - 1]
         bptime = _getOrder(bpacket, orderAttr, bptime)
         diff.append(('add', start, bptime, c))
+
     return diff
 
-
-def compareFrames(one_frames, two_frames, skip_meta=None, counters={}):
+def compareFrames(one_frames, two_frames, meta_diff=dict(), summarize=[],skip_meta=None, counters={}):
     diff = {}
     for streamId, packets in one_frames.iteritems():
         if streamId in two_frames:
-            diff[streamId] = ('change', compareStream(packets, two_frames[streamId], skipMeta=skip_meta,counters=counters))
+            diff[streamId] = ('change',
+                              compareStream(packets, two_frames[streamId],streamId=streamId,meta_diff=meta_diff, skipMeta=skip_meta,counters=counters))
         else:
             diff[streamId] = ('delete', [])
     for streamId, packets in two_frames.iteritems():
@@ -507,7 +586,9 @@ def formMetaDataDiff(file_one, file_two):
     counters= {}
     counters['interlaced_frame'] = [0,0]
     counters['key_frame'] = [0, 0]
-    frame_diff = compareFrames(one_frames, two_frames, skip_meta=['pkt_pos', 'pkt_size'], counters = counters)
+    frame_diff = compareFrames(one_frames, two_frames,
+                               meta_diff=meta_diff,
+                               skip_meta=['pkt_pos', 'pkt_size'], counters = counters)
     if counters['interlaced_frame'][0] - counters['interlaced_frame'][1] != 0:
         meta_diff ['interlaced_frames'] = ('change',counters['interlaced_frame'][0] , counters['interlaced_frame'][1])
     if counters['key_frame'][0] - counters['key_frame'][1] != 0:
@@ -558,6 +639,7 @@ def removeVideoFromAudio(filename,outputname=None):
         logging.getLogger('maskgen').error("FFMPEG invocation error for {} is {}".format(filename, str(e)))
 
 
+
 def x265(filename ,outputname=None, crf=0, remove_video=False):
     return _vid_compress(filename,
                          ['-loglevel','error','-c:v','libx265','-preset','medium','-x265-params', '--lossless', '-crf',str(crf),'-c:a','aac','-b:a','128k'],
@@ -565,12 +647,28 @@ def x265(filename ,outputname=None, crf=0, remove_video=False):
                          outputname=outputname,
                          remove_video=remove_video)
 
-def x264(filename, outputname=None, crf=0,remove_video=False):
+def lossy(filename, outputname=None, crf=0,remove_video=False):
+    return _vid_compress(filename,
+                         ['-loglevel','error'],
+                         'h264',
+                         outputname=outputname,
+                         suffix = 'mov',
+                         remove_video=remove_video)
+
+def x264fast(filename, outputname=None, crf=0,remove_video=False):
     return _vid_compress(filename,
                          ['-loglevel','error','-c:v', 'libx264', '-preset', 'ultrafast',  '-crf', str(crf)],
                          'h264',
                          outputname=outputname,
                          remove_video=remove_video)
+
+def x264(filename, outputname=None, crf=0,remove_video=False):
+    return _vid_compress(filename,
+                         ['-loglevel','error','-c:v', 'libx264', '-preset', 'medium',  '-crf', str(crf)],
+                         'h264',
+                         outputname=outputname,
+                         remove_video=remove_video)
+
 
 def vid_md5(filename):
     ffmpegcommand = os.getenv('MASKGEN_FFMPEGTOOL', 'ffmpeg')
@@ -589,7 +687,7 @@ def vid_md5(filename):
     except OSError as e:
         logging.getLogger('maskgen').error("FFMPEG invocation error for {} is {}".format(filename, str(e)))
 
-def _vid_compress(filename, expressions, criteria,outputname=None,remove_video=False):
+def _vid_compress(filename, expressions, criteria,suffix='avi',outputname=None, remove_video=False):
     #md5 = vid_md5(filename)
     one_meta, one_frames = getMeta(filename, with_frames=False)
     execute_remove= False
@@ -602,7 +700,9 @@ def _vid_compress(filename, expressions, criteria,outputname=None,remove_video=F
             if 'Stream' in k and criteria in v:
                 execute_compress = False
     prefix = filename[0:filename.rfind('.')]
-    outFileName = prefix + '_compressed.avi' if outputname is None else outputname
+    if not filename.endswith(suffix):
+        execute_compress = True
+    outFileName = prefix + '_compressed.' + suffix if outputname is None else outputname
     ffmpegcommand = os.getenv('MASKGEN_FFMPEGTOOL', 'ffmpeg')
     if  execute_remove:
         filename = removeVideoFromAudio(filename, outputname=outFileName if not execute_compress else None)
@@ -659,11 +759,11 @@ def getFrameRate(fileOne, default=None):
                 return float(rate[0]) / float(rate[1])
     return default
 
-def _toAudio(fileOne):
+def toAudio(fileOne,outputName=None):
         """
         Consruct wav files
         """
-        name = fileOne + '.wav'
+        name = fileOne + '.wav' if outputName is None else outputName
         ffmpegcommand = os.getenv('MASKGEN_FFMPEGTOOL', 'ffmpeg')
         if os.path.exists(name):
             os.remove(name)
@@ -709,7 +809,7 @@ def _formMaskDiffWithFFMPEG(fileOne, fileTwo, prefix, op, time_manager):
         result = []
     try:
         os.remove(outFileName)
-    except IOError:
+    except OSError:
         print 'video diff process failed'
 
     return result, errors if sendErrors  else []
@@ -726,6 +826,8 @@ class VidAnalysisComponents:
     writer = None
     fps = None
     time_manager = None
+    frame_two_mask = None
+    frame_one_mask = None
     """
     @type time_manager: tool_set.VidTimeManager
     @type elapsed_time_one: int
@@ -733,7 +835,32 @@ class VidAnalysisComponents:
     """
 
     def __init__(self):
-        pass
+        self.one_count = 0
+        self.two_count = 0
+
+    def grabOne(self):
+        res = self.vid_one.grab()
+        self.grabbed_one = res
+        if res:
+            self.one_count+=1
+        return res
+
+    def grabTwo(self):
+        res = self.vid_two.grab()
+        self.grabbed_two = res
+        if res:
+            self.two_count += 1
+        return res
+
+    def retrieveOne(self):
+        res,self.frame_one = self.vid_one.retrieve()
+        return res, self.frame_one
+
+    def retrieveTwo(self):
+        res, self.frame_two = self.vid_two.retrieve()
+        return res,self.frame_two
+
+
 
 def cutDetect(vidAnalysisComponents, ranges=list(),arguments={}):
     """
@@ -753,7 +880,7 @@ def cutDetect(vidAnalysisComponents, ranges=list(),arguments={}):
         count = 1
         cut['mask'] = vidAnalysisComponents.mask
         if type(cut['mask']) == int:
-            cut['mask'] = np.zeros((vidAnalysisComponents.frame_one.shape[0],vidAnalysisComponents.frame_one.shape[1]))
+            cut['mask'] = vidAnalysisComponents.frame_one_mask
         while (vidAnalysisComponents.vid_one.isOpened()):
             ret_one, frame_one = vidAnalysisComponents.vid_one.read()
             if not ret_one:
@@ -793,7 +920,7 @@ def addDetect(vidAnalysisComponents, ranges=list(),arguments={}):
         count = 1
         addition['mask'] = vidAnalysisComponents.mask
         if type(addition['mask']) == int:
-            addition['mask'] = np.zeros((vidAnalysisComponents.frame_two.shape[0],vidAnalysisComponents.frame_two.shape[1]))
+            addition['mask'] = vidAnalysisComponents.frame_two_mask
         while (vidAnalysisComponents.vid_two.isOpened()):
             ret_two, frame_two = vidAnalysisComponents.vid_two.read()
             if not ret_two:
@@ -875,8 +1002,8 @@ def audioCompare(fileOne, fileTwo, name_prefix, time_manager,arguments={}):
     @type time_manager: VidTimeManager
     """
     import wave
-    fileOneAudio,errorsone = _toAudio(fileOne)
-    fileTwoAudio,errorstwo = _toAudio(fileTwo)
+    fileOneAudio,errorsone = toAudio(fileOne)
+    fileTwoAudio,errorstwo = toAudio(fileTwo)
     if len(errorsone) > 0:
         return list(),errorsone
     if len(errorstwo) > 0:
@@ -887,9 +1014,13 @@ def audioCompare(fileOne, fileTwo, name_prefix, time_manager,arguments={}):
             ftwo = wave.open(fileTwoAudio,'rb')
             countone = fone.getnframes()
             counttwo = ftwo.getnframes()
+            onechannels = fone.getnchannels()
+            twochannels = ftwo.getnchannels()
+            onewidth =fone.getsampwidth()
+            twowidth = ftwo.getsampwidth()
             framerateone = fone.getframerate()/1000
-            frameratetwo = ftwo.getframerate()/1000
-            if framerateone != frameratetwo:
+            if fone.getframerate() != ftwo.getframerate() or onewidth != twowidth or \
+                    onechannels != twochannels:
                 time_manager.updateToNow(float(countone) / float(framerateone))
                 return [{'startframe': 1,
                          'starttime': float(1) / float(framerateone),
@@ -899,26 +1030,45 @@ def audioCompare(fileOne, fileTwo, name_prefix, time_manager,arguments={}):
                          'frames': countone}], []
             start = None
             totalonecount = 0
+            sections = []
+            section = None
             while countone > 0 and counttwo > 0:
-                toRead = min([64, counttwo,countone])
+                toRead = min([128, counttwo,countone])
                 framesone = fone.readframes( toRead)
                 framestwo = ftwo.readframes( toRead)
                 countone -= toRead
                 counttwo -= toRead
+                framesize = onewidth * onechannels
                 for i in range(toRead):
                     totalonecount+=1
-                    diff = ord(framesone[i]) - ord(framestwo[i])
+                    startbyte = i*framesize
+                    endbyte = startbyte + framesize
+                    allone = sum([ord(c) for c in framesone[startbyte:endbyte]])
+                    alltwo = sum([ord(c) for c in framestwo[startbyte:endbyte]])
+                    diff = abs(allone-alltwo)
                     time_manager.updateToNow(totalonecount/float(framerateone))
-                    if diff != 0:
-                        if start is None:
-                            start  =totalonecount
+                    if diff > 1:
+                        if section is not None and totalonecount-end >= framerateone:
+                            section['endframe'] = end
+                            section['endtime'] = float(end) / float(framerateone)
+                            section['frames'] = end - start
+                            sections.append(section)
+                            section = None
                         end = totalonecount
-            return [{'startframe':start,
-                         'starttime': float(start)/float(framerateone),
-                         'endframe':end,
-                         'endtime':float(end)/float(framerateone),
-                         'rate':framerateone,
-                         'frames':end-start}],[]
+                        if section is None:
+                            start = totalonecount
+                            section = {'startframe': start,
+                             'starttime': float(start) / float(framerateone),
+                             'endframe': end,
+                             'endtime': float(end) / float(framerateone),
+                             'rate': framerateone,
+                             'frames': 1}
+            if section is not None:
+                section['endframe'] = end
+                section['endtime'] = float(end) / float(framerateone)
+                section['frames'] = end - start + 1
+                sections.append(section)
+            return sections,[]
         finally:
             ftwo.close()
     finally:
@@ -948,6 +1098,12 @@ def _runDiff(fileOne, fileTwo,  name_prefix, opName, diffPref, time_manager,alte
     analysis_components.vid_one = cv2.VideoCapture(fileOne)
     analysis_components.vid_two = cv2.VideoCapture(fileTwo)
     analysis_components.fps = analysis_components.vid_one.get(cv2.cv.CV_CAP_PROP_FPS)
+    analysis_components.frame_one_mask = \
+        np.zeros((int(analysis_components.vid_one.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)),
+                  int(analysis_components.vid_one.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)))).astype('uint8')
+    analysis_components.frame_two_mask = \
+        np.zeros((int(analysis_components.vid_two.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)),
+                  int(analysis_components.vid_two.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)))).astype('uint8')
     analysis_components.fps_one = analysis_components.vid_one.get(cv2.cv.CV_CAP_PROP_FPS)
     analysis_components.fps_two = analysis_components.vid_two.get(cv2.cv.CV_CAP_PROP_FPS)
     analysis_components.writer = tool_set.GrayBlockWriter(name_prefix,
@@ -958,48 +1114,55 @@ def _runDiff(fileOne, fileTwo,  name_prefix, opName, diffPref, time_manager,alte
     ranges = list()
     try:
         while (analysis_components.vid_one.isOpened() and analysis_components.vid_two.isOpened()):
-            ret_one, analysis_components.frame_one = analysis_components.vid_one.read()
+            ret_one = analysis_components.grabOne()
             if not ret_one:
                 analysis_components.vid_one.release()
                 break
             elapsed_time = analysis_components.vid_one.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
-            ret_two, analysis_components.frame_two = analysis_components.vid_two.read()
+            ret_two = analysis_components.grabTwo()
             if not ret_two:
                 analysis_components.vid_two.release()
                 break
             time_manager.updateToNow(elapsed_time)
             if time_manager.isBeforeTime():
                 continue
+            ret_one, frame_one =analysis_components.retrieveOne()
+            ret_two, frame_two = analysis_components.retrieveTwo()
             if time_manager.isPastTime():
                 break
             analysis_components.elapsed_time_one = elapsed_time
             analysis_components.elapsed_time_two = analysis_components.vid_two.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
-            diff = np.abs(analysis_components.frame_one - analysis_components.frame_two)
-            #Image.fromarray(analysis_components.frame_one).save(dir + '/vidpng/v1_'+str(elapsed_time) + '.png')
-            #Image.fromarray(analysis_components.frame_two).save(dir + '/vidpng/v2_' + str(elapsed_time) + '.png')
-            #Image.fromarray(diff).save(dir + '/vidpng/diff_' + str(elapsed_time) + '.png')
-            analysis_components.mask = np.zeros((analysis_components.frame_one.shape[0],analysis_components.frame_one.shape[1])).astype('uint8')
+            diff = np.abs(frame_one - frame_two)
+            analysis_components.mask = np.zeros((frame_one.shape[0],frame_one.shape[1])).astype('uint8')
             diff  = cv2.cvtColor(diff,cv2.COLOR_RGBA2GRAY)
             analysis_components.mask[diff > 0.0001] = 255
             #opening = cv2.erode(analysis_components.mask, kernel,1)
             #analysis_components.mask = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
             opFunc(analysis_components,ranges,arguments)
         analysis_components.mask = 0
+        if analysis_components.grabbed_one and analysis_components.frame_one is None:
+            analysis_components.retrieveOne()
+        if analysis_components.grabbed_two and analysis_components.frame_two is None:
+            analysis_components.retrieveTwo()
         opFunc(analysis_components,ranges,arguments)
         analysis_components.writer.release()
     finally:
         analysis_components.vid_one.release()
         analysis_components.vid_two.release()
         analysis_components.writer.close()
+    if analysis_components.one_count == 0:
+        raise ValueError(
+            'Mask Computation Failed to a read videos.  FFMPEG and OPENCV may not be installed correctly or the videos maybe empty.')
     return ranges,[]
 
 def _getVideoFrame(video,frame_time):
     while video.isOpened():
-        ret, frame = video.read()
+        ret = video.grab()
         if not ret:
             break
         elapsed_time = video.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
         if elapsed_time >= frame_time:
+            ret,frame = video.retrieve()
             return frame,elapsed_time
     return None,None
 
@@ -1084,10 +1247,11 @@ def pullFrameNumber(video_file, frame_number):
     frame = None
     video_capture = cv2.VideoCapture(video_file)
     while (video_capture.isOpened() and frame_number > 0):
-        ret, frame = video_capture.read()
+        ret = video_capture.grab()
         if not ret:
             break
         frame_number-=1
+    ret, frame = video_capture.retrieve()
     elapsed_time = video_capture.get(cv2.cv.CV_CAP_PROP_POS_MSEC)
     video_capture.release()
     ImageWrapper(frame).save(video_file[0:video_file.rfind('.')] + '.png')

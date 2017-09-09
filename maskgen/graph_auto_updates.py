@@ -56,6 +56,19 @@ def updateJournal(scModel):
         _fixRANSAC(scModel)
         _fixHP(scModel)
         upgrades.append('04.0720.415b6a5cc4')
+    if '04.0720.b0ec584b4e' not in upgrades:
+        _fixInsertionST(scModel)
+        upgrades.append('04.0720.b0ec584b4e')
+    if '04.0810.546e996a36' not in upgrades:
+        _fixVideoAudioOps(scModel)
+        upgrades.append('04.0810.546e996a36')
+    if '04.0810.9381e76724' not in upgrades:
+        _fixCopyST(scModel)
+        _fixCompression(scModel)
+        upgrades.append('04.0810.9381e76724')
+    if '04.0820.cd74ff8bc8' not in upgrades:
+        _addColor(scModel)
+        upgrades.append('04.0820.cd74ff8bc8')
     if scModel.getGraph().getVersion() not in upgrades:
         upgrades.append(scModel.getGraph().getVersion())
     scModel.getGraph().setDataItem('jt_upgrades',upgrades,excludeUpdate=True)
@@ -90,6 +103,9 @@ def _updateEdgeHomography(edge):
         if 'sift_max_matches' in edge:
             edge['homography max matches'] = edge.pop('sift_max_matches')
 
+def _addColor(scModel):
+    scModel.assignColors()
+
 def _fixHP(scModel):
     for nodename in scModel.getNodeNames():
         node= scModel.G.get_node(nodename)
@@ -104,6 +120,61 @@ def _fixRANSAC(scModel):
         _updateEdgeHomography(args)
         if edge['op'] == 'Donor':
             edge['homography max matches'] = 20
+
+def _fixVideoAudioOps(scModel):
+    groups = scModel.G.getDataItem('groups')
+    if groups is None:
+        groups = {}
+    op_mapping = {
+        'AudioPan':'AudioAmplify',
+        'SelectFromFrames':'SelectRegionFromFrames',
+        'ColorInterpolation':'ColorLUT'
+    }
+    for frm, to in scModel.G.get_edges():
+        edge = scModel.G.get_edge(frm, to)
+        if edge['op'] in groups:
+            ops = groups[edge['op']]
+        else:
+            ops = [edge['op']]
+        for op in ops:
+            if op in op_mapping:
+                args = edge['arguments'] if 'arguments' in edge else dict()
+                if len(ops) == 1:
+                    edge['op'] = op_mapping[op]
+                if 'chroma key insertion' in args:
+                    args['key insertion'] = args.pop('chroma key insertion')
+                if 'Left' in args:
+                    args['Left Pan'] = args.pop('Left')
+                if 'Right' in args:
+                    args['Right Pan'] = args.pop('Right')
+    newgroups = {}
+    for k, v in groups.iteritems():
+        newgroups[k] = [op_mapping[op] if op in op_mapping else op for op in v]
+    scModel.G.setDataItem('groups', newgroups)
+
+def _fixInsertionST(scModel):
+    for frm, to in scModel.G.get_edges():
+        edge = scModel.G.get_edge(frm, to)
+        args = edge['arguments'] if 'arguments' in edge else dict()
+        if 'Insertion Start Time' in args:
+            args['Start Time'] = args.pop('Insertion Start Time')
+        if 'Insertion End Time' in args:
+            args['End Time'] = args.pop('Insertion End Time')
+
+def _fixCompression(scModel):
+    for nname in scModel.G.get_nodes():
+        node = scModel.G.get_node(nname)
+        if node['file'].endswith('_compressed.avi'):
+            node['compressed'] = 'maskgen.video_tools.x264'
+
+def _fixCopyST(scModel):
+    for frm, to in scModel.G.get_edges():
+        edge = scModel.G.get_edge(frm, to)
+        args = edge['arguments'] if 'arguments' in edge else dict()
+        if 'Copy Start Time' in args:
+            args['Start Time'] = args.pop('Copy Start Time')
+        if 'Copy End Time' in args:
+            args['End Time'] = args.pop('Copy End Time')
 
 def _operationsChange1(scModel):
     projecttype = scModel.G.getDataItem('projecttype')
@@ -153,6 +224,7 @@ def _operationsChange1(scModel):
     }
     op_mapping = {
         'AdditionalEffectAddLightSource':'ArtificialLighting',
+        'ArtifactsCGIArtificialLighting':'ArtificialLighting',
         'AdditionalEffectFading':'Fading',
         'AdditionalEffectMosaic':'Mosaic',
         'AdditionalEffectReduceInterlaceFlicker':'ReduceInterlaceFlicker',
@@ -231,7 +303,7 @@ def _operationsChange1(scModel):
                 setPathValue(edge,'arguments.Source', source_mapping[op])
             if projecttype == 'video' and op == 'FilterBlurMotion':
                 edge['op'] = 'MotionBlur'
-            elif op in op_mapping:
+            elif op in op_mapping and len(ops) == 1:
                 edge['op'] = op_mapping[op]
         newgroups = {}
         for k,v in groups.iteritems():
@@ -257,6 +329,9 @@ def _pasteSpliceBlend(scModel):
             mod = scModel.getModificationForEdge(frm,to,edge)
             scModel.imageFromGroup(grp, software=mod.software, **args)
 
+
+def _fixColors(scModel):
+    scModel.assignColors(scModel)
 
 def _fixLabels(scModel):
     for node in scModel.getNodeNames():

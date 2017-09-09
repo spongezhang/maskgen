@@ -275,33 +275,33 @@ def transform(img,source,target,**kwargs):
 # the category to be shown
 def operation():
   return {'name':'PasteSplice',
-      'category':'Paste',
-      'description':'Apply a mask to create an alpha channel',
-      'software':'OpenCV',
-      'version':'2.4.13',
-      'arguments':{
-          'donor':{
-              'type':'donor',
-              'defaultvalue':None,
-              'description':'Mask to set alpha channel to 0'
+          'category':'Paste',
+          'description':'Apply a mask to create an alpha channel',
+          'software':'OpenCV',
+          'version':cv2.__version__,
+          'arguments':{
+              'donor':{
+                  'type':'donor',
+                  'defaultvalue':None,
+                  'description':'Mask to set alpha channel to 0'
+              },
+              'approach': {
+                  'type': 'list',
+                  'values': ['texture', 'simple', 'random'],
+                  'defaultvalue': 'random',
+                  'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
+              },
+              'segment': {
+                  'type': 'list',
+                  'values' : ['felzenszwalb','slic'],
+                  'defaultvalue': 'felzenszwalb',
+                  'description': 'Segmentation algorithm for determiming paste region with simple set to no'
+              }
           },
-          'approach': {
-              'type': 'list',
-              'values': ['texture', 'simple', 'random'],
-              'defaultvalue': 'random',
-              'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
-          },
-          'segment': {
-              'type': 'list',
-              'values' : ['felzenszwalb','slic'],
-              'defaultvalue': 'felzenszwalb',
-              'description': 'Segmentation algorithm for determiming paste region with simple set to no'
-          }
-      },
-      'transitions': [
-          'image.image'
-      ]
-  }
+          'transitions': [
+              'image.image'
+          ]
+}
 
 def suffix():
     return None
