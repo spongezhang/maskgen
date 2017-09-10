@@ -101,13 +101,20 @@ def cs_save_as(source, target, donor, qTables,rotate,quality):
         maskgen.exif.runexif(['-P', '-q', '-m', '-System:fileModifyDate=' + createtime['-FileCreateDate'], target])
 
 def transform(img,source,target, **kwargs):
-    donor = kwargs['donor']
-    rotate = kwargs['rotate'] == 'yes'
-    quality = int(kwargs['quality']) if 'quality' in kwargs else 0
-    
-    tables_zigzag = parse_tables(donor)
-    tables_sorted = sort_tables(tables_zigzag)
-    cs_save_as(source, target, donor, tables_sorted,rotate, quality)
+    try:
+        donor = kwargs['donor']
+        rotate = kwargs['rotate'] == 'yes'
+        quality = int(kwargs['quality']) if 'quality' in kwargs else 0
+        
+        tables_zigzag = parse_tables(donor)
+        tables_sorted = sort_tables(tables_zigzag)
+        cs_save_as(source, target, donor, tables_sorted,rotate, quality)
+    except:
+        print('Read thumbnail error.')
+        with open(source,'rb') as fp:
+            im = Image.open(fp)
+            im.load()
+            im.save(target)
     
     return None,None
     
