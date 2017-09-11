@@ -101,6 +101,7 @@ def cs_save_as(source, target, donor, qTables,rotate,quality):
         maskgen.exif.runexif(['-P', '-q', '-m', '-System:fileModifyDate=' + createtime['-FileCreateDate'], target])
 
 def transform(img,source,target, **kwargs):
+    #Solve the issue when the original image don't have the thumbnail
     try:
         donor = kwargs['donor']
         rotate = kwargs['rotate'] == 'yes'
