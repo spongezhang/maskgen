@@ -73,7 +73,7 @@ def transform(img,source,target,**kwargs):
         ImageWrapper(mask.astype('uint8')).save(target)
 
     shape = mask.shape
-    x, y, w, h = cv2.boundingRect(cnt[0])
+    x, y, w, h = cv2.boundingRect(cnt)
     trial_boxes = [
         [0, 0, x, shape[0] - h],
         [0, 0, shape[1] - w, y],
@@ -100,7 +100,7 @@ def operation():
           'category':'Select',
           'description':'Denoise and segment (felzenszwalb) the image to find selection from the image. Output the image using the alpha channel indicating the selection.',
           'software':'OpenCV',
-          'version':'2.4.13',
+          'version':cv2.__version__,
           'arguments': {'alpha': {'type' : "yesno",
                                       "defaultvalue": "yes",
                                       'description': "If yes, save the image with an alpha channel instead of the mask."}},

@@ -13,6 +13,7 @@ from maskgen_loader import MaskGenLoader
 from subprocess import Popen, PIPE
 import threading
 import loghandling
+import cv2api
 
 
 imagefiletypes = [("jpeg files", "*.jpg"), ("png files", "*.png"), ("tiff files", "*.tiff"),("tiff files", "*.tif"), ("Raw NEF", "*.nef"),
@@ -21,7 +22,7 @@ imagefiletypes = [("jpeg files", "*.jpg"), ("png files", "*.png"), ("tiff files"
 videofiletypes = [("mpeg files", "*.mp4"), ("mov files", "*.mov"), ('wmv', '*.wmv'), ('m4p', '*.m4p'), ('m4v', '*.m4v'),
                   ('f4v', '*.flv'), ("avi files", "*.avi"), ('asf', '*.asf'), ('mts', '*.mts')]
 audiofiletypes = [("mpeg audio files", "*.m4a"), ("mpeg audio files", "*.m4p"), ("mpeg audio files", "*.mp3"),
-                  ("raw audio files", "*.raw"),
+                  ("raw audio files", "*.raw"), ("Audio Interchange File","*.aif"),("Audio Interchange File","*.aiff"),
                   ("Standard PC audio files", "*.wav"), ("Windows Media  audio files", "*.wma")]
 suffixes = [".nef", ".jpg", ".png", ".tiff", ".bmp", ".avi", ".mp4", ".mov", ".wmv", ".ppm", ".pbm", ".gif",
             ".wav", ".wma", ".m4p", ".mp3", ".m4a", ".raw", ".asf", ".mts",".tif"]
@@ -174,6 +175,9 @@ class IntObject:
 
     def __init__(self):
         pass
+
+    def set(self,value):
+        self.value = value
 
     def increment(self):
         self.value += 1
@@ -346,6 +350,19 @@ def getFrameDurationString(st, et):
         mi = sec / 60 - (hr * 60)
         ss = sec - (hr * 3600) - mi * 60
         return '{:=02d}:{:=02d}:{:=02d}'.format(hr, mi, ss)
+
+def getSecondDurationStringFromMilliseconds(millis):
+    sec = int(millis/1000)
+    ms = int(millis - (sec*1000))
+    return '{:=02d}.{:=03d}'.format(sec,ms)
+
+def getDurationStringFromMilliseconds(millis):
+    sec = int(millis/1000)
+    ms = int(millis - (sec*1000))
+    hr = sec / 3600
+    mi = sec / 60 - (hr * 60)
+    ss = sec - (hr * 3600) - mi * 60
+    return '{:=02d}:{:=02d}:{:=02d}.{:=03d}'.format(hr, mi, ss,ms)
 
 def getMilliSecondsAndFrameCount(v):
     dt = None
@@ -533,6 +550,16 @@ def readImageFromVideo(filename,videoFrameTime=None,isMask=False,snapshotFileNam
             img.save(snapshotFileName)
         return img
 
+def md5offile(filename,raiseError=True):
+    import hashlib
+    try:
+        with open(filename, 'rb') as rp:
+            return hashlib.md5(rp.read()).hexdigest()
+    except Exception as e:
+        if raiseError:
+            raise e
+        return ''
+
 def shortenName(name, postfix):
     import hashlib
     middle = ''.join([(x[0]+x[-1] if len(x) > 1 else x) for x in name.split('_')])
@@ -611,7 +638,7 @@ def interpolateMask(mask, startIm, destIm, invert=False, arguments=dict()):
         return newMask, analysis
     else:
         try:
-            contours, hier = cv2.findContours(255 - mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, hier = cv2api.findContours(255 - mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             minpoint = None
             maxpoint = None
             for contour in contours:
@@ -858,7 +885,6 @@ class ColorCompositeBuilder(CompositeBuilder):
        return finalNodeId + '_composite_mask.png',\
                       ImageWrapper(compositeMask),globalchange, changeCategory, ratio
 
-
 def maskChangeAnalysis(mask, globalAnalysis=False):
     mask = np.asarray(mask)
     totalPossible = reduce(lambda a, x: a * x, mask.shape)
@@ -870,8 +896,7 @@ def maskChangeAnalysis(mask, globalAnalysis=False):
         kernel = np.ones((5, 5), np.uint8)
         erosion = cv2.erode(mask, kernel, iterations=2)
         closing = cv2.morphologyEx(erosion, cv2.MORPH_CLOSE, kernel)
-        #contours, hierarchy = cv2.findContours(closing.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        img2, contours, hierarchy = cv2.findContours(closing.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hierarchy = cv2api.findContours(closing.astype('uint8'), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         p = np.asarray([item[0] for sublist in contours for item in sublist])
         if len(p) > 0:
             area = cv2.contourArea(cv2.convexHull(p))
@@ -918,10 +943,16 @@ def forcedSiftWithInputAnalysis(analysis, img1, img2, mask=None, linktype=None, 
         return
     if 'inputmaskname' in arguments:
         inputmask = openImageFile(os.path.join(directory, arguments['inputmaskname'])).to_mask().to_array()
-        # want mask2 to be the region moved to
-        mask2 = mask - inputmask
-        # mask1 to be the region moved from
-        mask = inputmask
+        # a bit arbitrary.  If there is a less than  50% overlap, then isolate the regions highlighted by the inputmask
+        # otherwise just use the change mask for the transform.  The change mask should be the full set of the pixels
+        # changed and the input mask a subset of those pixels
+        if sum(sum(abs((mask.image_array - inputmask)/255))) / float(sum(sum(mask.image_array/255))) >= 0.75:
+            # want mask2 to be the region moved to
+            mask2 = mask - inputmask
+            # mask1 to be the region moved from
+            mask = inputmask
+        else:
+            mask2 = mask.resize(img2.size, Image.ANTIALIAS) if mask is not None and img1.size != img2.size else mask
     else:
         mask2 =  mask.resize(img2.size, Image.ANTIALIAS) if mask is not None and img1.size != img2.size else mask
     matrix,matchCount  = __sift(img1, img2, mask1=mask, mask2=mask2, arguments=arguments)
@@ -957,7 +988,7 @@ def siftAnalysis(analysis, img1, img2, mask=None, linktype=None, arguments=dict(
 def boundingRegion (mask):
     minregion = list(mask.shape)
     maxregion = list((0, 0))
-    contours, hierarchy = cv2.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for i in range(0, len(contours)):
         try:
             cnt = contours[i]
@@ -975,10 +1006,9 @@ def boundingRegion (mask):
             continue
     return tuple(minregion), tuple(maxregion)
 
-
 def boundingRectange(mask):
     allpoints = []
-    contours, hierarchy = cv2.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for i in range(0, len(contours)):
             cnt = contours[i]
             allpoints.extend(cnt)
@@ -1076,7 +1106,7 @@ def createMask(img1, img2, invert=False, arguments={}, alternativeFunction=None,
     mask, analysis = __composeMask(img1, img2, invert, arguments=arguments,
                                    alternativeFunction=alternativeFunction,
                                    convertFunction=convertFunction)
-    analysis['shape change'] = __sizeDiff(img1, img2)
+    analysis['shape change'] =sizeDiff(img1, img2)
     return ImageWrapper(mask), analysis
 
 def __indexOf(source, dest):
@@ -1204,7 +1234,7 @@ def __sift(img1, img2, mask1=None, mask2=None, arguments=None):
     arguments = dict(arguments)
     homography = arguments['homography'] if arguments is not None and 'homography' in arguments else 'RANSAC-4'
     if homography in ['None','Map']:
-        return None
+        return None,None
     elif homography in ['All'] and 'homography max matches' in arguments:
         # need as many as possible
         arguments.pop('homography max matches')
@@ -1419,6 +1449,12 @@ def applyPerspectiveToComposite(compositeMask, transform_matrix, shape):
     func = partial(perspectiveChange, M=transform_matrix,shape=shape)
     return applyToComposite(compositeMask, func, shape=shape)
 
+def applyAffineToComposite(compositeMask, transform_matrix, shape):
+    def perspectiveChange(compositeMask, M=None,shape=None):
+        return cv2.warpAffine(compositeMask, M, (shape[1],shape[0]))
+    from functools import partial
+    func = partial(perspectiveChange, M=transform_matrix,shape=shape)
+    return applyToComposite(compositeMask, func, shape=shape)
 
 def applyRotateToComposite(rotation, compositeMask, expectedDims):
     """
@@ -1784,7 +1820,7 @@ def composeCloneMask(changemask, startimage, finalimage):
     startimagearray = np.array(startimage)
     finalimgarray = np.array(finalimage)
     newmask = np.zeros(startimagearray.shape).astype('uint8')
-    contours, hierarchy = cv2.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(np.copy(mask), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     for i in range(0, len(contours)):
         try:
             cnt = contours[i]
@@ -1834,7 +1870,7 @@ def __colorPSNR(z1, z2, size=None):
     return 0.0 if mse == 0.0 else 20.0 * math.log10(255.0 / math.sqrt(mse))
 
 
-def __sizeDiff(z1, z2):
+def sizeDiff(z1, z2):
     """
        z1 and z2 are expected to be PIL images
     """
@@ -2482,29 +2518,6 @@ def widthandheight(img):
     h,w = bbox[1] - bbox[0], bbox[3] - bbox[2]
     return bbox[2],bbox[0],w,h
 
-def minimum_bounding_box(image):
-    #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    im2, contours, hierarchy = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    selected = []
-    for cnt in contours:
-        try:
-            M = cv2.moments(cnt)
-            x = int(M['m10'] / M['m00'])
-            y = int(M['m01'] / M['m00'])
-            x1, y1, w, h = cv2.boundingRect(cnt)
-            selected.append((w,h,w*h,x,y))
-        except:
-            continue
-        
-    selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
-    
-    if len(selected) == 0:
-        print 'cannot determine contours'
-        x, y, w, h = tool_set.widthandheight(image)
-        selected = [ (w,h,w*h,x+w/2,y+h/2)]
-    
-    return selected[0]
-
 def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect = None):
     #if not rect:
     x, y, w, h = widthandheight(mask)
@@ -2521,10 +2534,10 @@ def place_in_image(mask, image_to_place,  image_to_cover, placement_center, rect
     x_offset = int(placement_center[0]) - int(math.floor(w/2))
     y_offset = int(placement_center[1]) - int(math.floor(h/2))
 
-    if y_offset < 0:
-        return None
-    if x_offset < 0:
-        return None
+    #if y_offset < 0:
+    #    return None
+    #if x_offset < 0:
+    #    return None
     image_to_cover = np.copy(image_to_cover)
     flipped_mask = 255 - mask
     for c in range(0, 3):

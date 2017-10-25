@@ -1,4 +1,5 @@
-from maskgen.segmentation.segmanage import select_region, convert_color,find_segmentation_classifier,segmentation_classification
+from maskgen.segmentation.segmanage import select_region, convert_color, find_segmentation_classifier, find_segmentation_classifier_COCO, segmentation_classification
+import cv2
 """
 Selected a region using a presegmented image descriptor.
 A directory contains PNG images, each with the same name (different suffix) as the source image (md5 name).
@@ -15,7 +16,7 @@ def transform(img,source,target,**kwargs):
     segmentation_directory = kwargs['segmentation_directory']
     segmentation_color = kwargs['color'] if 'color' in kwargs else None
     segmentation_color = convert_color(segmentation_color)
-    segment_mask = find_segmentation_classifier(source, segmentation_directory)
+    segment_mask = find_segmentation_classifier_COCO(source, segmentation_directory)
     if segment_mask is None:
         return None, 'Cannot find segmentation mask'
     newimg, segmentation_color = select_region(img,segment_mask,segmentation_color)
@@ -29,7 +30,7 @@ def operation():
           'category':'Select',
           'description':'Use a set of presegmented images to pick a select region and purpose. ',
           'software':'OpenCV',
-          'version':'2.4.13',
+          'version':cv2.__version__,
           'arguments':
               {'segmentation_directory':{
                   'type':'imagefile',

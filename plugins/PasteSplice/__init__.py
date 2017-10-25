@@ -10,6 +10,8 @@ from skimage.future import graph
 import numpy as np
 import math
 from skimage.restoration import denoise_tv_bregman
+from maskgen import cv2api
+#import maskgen.tool_set
 
 from sys import platform as sys_pf
 if sys_pf == 'darwin':
@@ -36,10 +38,9 @@ class TransformedEllipse(Ellipse):
             .scale(self.fix_x, 1) \
             .translate(*center)
 
-
 def minimum_bounding_box(image):
     #(contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    im2, contours, hierarchy = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     selected = []
     for cnt in contours:
         try:
@@ -47,6 +48,9 @@ def minimum_bounding_box(image):
             x = int(M['m10'] / M['m00'])
             y = int(M['m01'] / M['m00'])
             x1, y1, w, h = cv2.boundingRect(cnt)
+            #To align with the width and height. Bounding box info is always 1 pixel larger than that.
+            w = w-1
+            h = h-1
             selected.append((w,h,w*h,x,y))
         except:
             continue
@@ -54,7 +58,6 @@ def minimum_bounding_box(image):
     selected = sorted(selected, key=lambda cnt: cnt[2], reverse=True)
     
     if len(selected) == 0:
-        print 'cannot determine contours'
         x, y, w, h = tool_set.widthandheight(image)
         selected = [ (w,h,w*h,x+w/2,y+h/2)]
     
@@ -78,7 +81,7 @@ def minimum_bounding_ellipse(image):
     :return:  (x, y, MA, ma, angle, area, contour)
     @rtype : (int,int,int,int,float, float,np.array)
     """
-    (contours, _) = cv2.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    (contours, _) = cv2api.findContours(image.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     selected = []
     for cnt in contours:
         try:
@@ -131,22 +134,59 @@ def build_random_transform(img_to_paste, mask_of_image_to_paste, image_center):
     angle = 180.0*random.random() - 90.0
     return cv2.getRotationMatrix2D(image_center, angle, scale)
 
-def pasteAnywhere(img, img_to_paste,mask_of_image_to_paste, simple):
-    w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+def pasteAnywhere(img, img_to_paste, mask_of_image_to_paste, simple):
+    #get gravity center for rotation
+    w, h, area, cx_gra, cy_gra = minimum_bounding_box(mask_of_image_to_paste)
+    #bounding box center for simple case.
+    x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+
+    #print('origin bounding box 1: {}, {}, {}, {}'.format(cx_gra,cy_gra,w,h))
+    #print('origin bounding box 2: {}, {}, {}, {}'.format(x,y,w1,h1))
+
     if not simple:
-        rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(x,y))
+        #use gravity center to rotate
+        rot_mat = build_random_transform(img_to_paste,mask_of_image_to_paste,(cx_gra,cy_gra))
         img_to_paste = cv2.warpAffine(img_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
         mask_of_image_to_paste= cv2.warpAffine(mask_of_image_to_paste, rot_mat, (img_to_paste.shape[1], img_to_paste.shape[0]))
-        w, h, area, x, y = minimum_bounding_box(mask_of_image_to_paste)
+        #x,y is the Geometry center(gravity center), which can't align to the crop center(bounding box center)
+        w, h, area, cx, cy = minimum_bounding_box(mask_of_image_to_paste)
+        #So we use this line to calculate the bbox centor
+        x, y, w1, h1 = tool_set.widthandheight(mask_of_image_to_paste)
+        #print('transformed bounding box 1: {}, {}, {}, {}'.format(cx,cy,w,h))
+        #print('transformed bounding box 2: {}, {}, {}, {}'.format(x,y,w1,h1))
+
     else:
         rot_mat = np.array([[1,0,0],[0,1,0]]).astype('float')
-    xplacement = random.randint(w/2+1, img.size[0]-w/2-1)
-    yplacement = random.randint(h/2+1,img.size[1]-h/2-1)
-    return rot_mat, tool_set.place_in_image(
+
+    if img.size[0] < w + 4:
+        w = img.size[0] - 2
+        xplacement = w / 2 + 1
+    else:
+        xplacement = random.randint(w / 2 + 1, img.size[0] - w / 2 - 1)
+
+    if img.size[1] < h + 4:
+        h = img.size[1] - 2
+        yplacement = h / 2 + 1
+    else:
+        yplacement = random.randint(h / 2 + 1, img.size[1] - h / 2 - 1)
+
+    output_matrix = np.eye(3, dtype=float)
+
+    for i in range(2):
+        for j in range(2):
+            output_matrix[i, j] = rot_mat[i, j]
+    
+    #That is the correct offset
+    output_matrix[0,2] = rot_mat[0,2] + xplacement - x - w1/2
+    output_matrix[1,2] = rot_mat[1,2] + yplacement - y - h1/2
+
+    return output_matrix, tool_set.place_in_image(
                           ImageWrapper(img_to_paste).to_mask().to_array(),
                           img_to_paste,
                           np.asarray(img),
-                          (xplacement, yplacement))
+                          (xplacement, yplacement),
+                        #x,y have no use
+                          rect=(x, y, w, h))
 
 def transform(img,source,target,**kwargs):
     img_to_paste =openImageFile(kwargs['donor'])
@@ -195,7 +235,7 @@ def transform(img,source,target,**kwargs):
                     mask[labels1==label] = 255
                     mask = mask.astype('uint8')
                     ret, thresh = cv2.threshold(mask, 127, 255, 0)
-                    (contours, _) = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                    (contours, _) = cv2api.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                     areas = [(cnt, cv2.contourArea(cnt)) for cnt in contours
                              if cv2.moments(cnt)['m00'] > 2.0]
                     contours = sorted(areas, key=lambda cnt: cnt[1], reverse=True)
@@ -235,33 +275,33 @@ def transform(img,source,target,**kwargs):
 # the category to be shown
 def operation():
   return {'name':'PasteSplice',
-      'category':'Paste',
-      'description':'Apply a mask to create an alpha channel',
-      'software':'OpenCV',
-      'version':'2.4.13',
-      'arguments':{
-          'donor':{
-              'type':'donor',
-              'defaultvalue':None,
-              'description':'Mask to set alpha channel to 0'
+          'category':'Paste',
+          'description':'Apply a mask to create an alpha channel',
+          'software':'OpenCV',
+          'version':cv2.__version__,
+          'arguments':{
+              'donor':{
+                  'type':'donor',
+                  'defaultvalue':None,
+                  'description':'Mask to set alpha channel to 0'
+              },
+              'approach': {
+                  'type': 'list',
+                  'values': ['texture', 'simple', 'random'],
+                  'defaultvalue': 'random',
+                  'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
+              },
+              'segment': {
+                  'type': 'list',
+                  'values' : ['felzenszwalb','slic'],
+                  'defaultvalue': 'felzenszwalb',
+                  'description': 'Segmentation algorithm for determiming paste region with simple set to no'
+              }
           },
-          'approach': {
-              'type': 'list',
-              'values': ['texture', 'simple', 'random'],
-              'defaultvalue': 'random',
-              'description': "The approach to find the placement. Option 'random' includes random selection scale and rotation"
-          },
-          'segment': {
-              'type': 'list',
-              'values' : ['felzenszwalb','slic'],
-              'defaultvalue': 'felzenszwalb',
-              'description': 'Segmentation algorithm for determiming paste region with simple set to no'
-          }
-      },
-      'transitions': [
-          'image.image'
-      ]
-  }
+          'transitions': [
+              'image.image'
+          ]
+}
 
 def suffix():
     return None
