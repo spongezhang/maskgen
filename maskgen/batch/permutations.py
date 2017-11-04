@@ -166,9 +166,15 @@ class FilePermuteGroupElement(PersistentPermuteGroupElement):
     def __init__(self, name, directory, tracking_filename=None):
         self.directory = directory
         self.tracking_filename  = tracking_filename if tracking_filename is not None else self.name
+        print(self.tracking_filename)
         if not os.path.exists(directory):
             raise ValueError("ImageSelection missing valid image_directory: " + directory)
-        self.listing = [os.path.join(self.directory,item) for item in os.listdir(directory)]
+        #It is very weird to traverse all the files in the working directory
+        #self.listing = [os.path.join(self.directory,item) for item in os.listdir(directory)]
+        self.listing = []
+        for item in os.listdir(directory):
+            if item.endswith('jpg'):
+                self.listing.append(os.path.join(self.directory,item))
         PersistentPermuteGroupElement.__init__(self, name, self.listing.__iter__)
 
     def getSaveFileName(self):

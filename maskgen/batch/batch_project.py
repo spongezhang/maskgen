@@ -39,20 +39,6 @@ class IntObject:
             self.value += 1
             return self.value
 
-
-def loadJSONGraph(pathname):
-    with open(pathname, "r") as f:
-        json_data = {}
-        try:
-            json_data = json.load(f, encoding='utf-8')
-            G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
-        except  ValueError:
-            json_data = json.load(f)
-            G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
-        return BatchProject(G, json_data)
-    return None
-
-
 def buildIterator(spec_name, param_spec, global_state, random_selection=False):
     """
     :param param_spec: argument specification
@@ -617,14 +603,159 @@ class BatchProject:
 
     G = nx.DiGraph(name="Empty")
 
-    def __init__(self, G, json_data):
+    def __init__(self, auto_graph=False, json_data=None):
         """
         :param G:
         @type G: nx.DiGraph
         """
-        self.G = G
-        self.json_data = json_data
-        tool_set.setPwdX(tool_set.CustomPwdX(self.G.graph['username']))
+        self.auto_graph = auto_graph
+        self.json_data = json_data.copy()
+        if auto_graph:
+            with open('./tests/top_operation.json') as data_file:    
+                self.top_operation = json.load(data_file)['operation']
+            self.operation = json_data['operation']
+            self.json_data.pop('operation', None)
+            with open('./tests/final_operation.json') as data_file:    
+                self.final_operation = json.load(data_file)['operation']
+            self.update_G()
+        else:
+            self.G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
+
+        tool_set.setPwdX(tool_set.CustomPwdX(self.json_data['graph']['username']))
+    
+    def update_G(self, max_top_number = 3, max_base_branch_length = 3):
+        #number of base+donor, 1 mean 1 base, 2 means 1 base + 1 donor 
+        top_number = random.randint(1, max_top_number)
+        #list of top nodes, including select image and convert to png
+        top_list = []
+        #top edge list
+        top_edge_list = []
+        #node id number
+        cur_id = 0
+        for i in range(top_number):
+            cur_list = []
+            cur_edge_list = []
+        
+            #i==0 base branch, otherwise donor branch
+            if i == 0:
+                cur_node = self.top_operation[0].copy()
+            else:
+                cur_node = self.top_operation[1].copy()
+            cur_node[u'id'] = str(cur_id).decode('utf-8')
+            cur_id = cur_id+1
+            cur_list.append(cur_node)
+            
+            #toPNG plugin 
+            cur_node = self.top_operation[2].copy()
+            cur_node[u'id'] = str(cur_id).decode('utf-8')
+            cur_list.append(cur_node)
+            cur_edge_list.append((cur_id-1,cur_id))
+            cur_id = cur_id+1
+            
+            # mask selection plugin
+            if i>0:
+                cur_node = self.top_operation[3].copy()
+                cur_node[u'id'] = str(cur_id).decode('utf-8')
+                cur_list.append(cur_node)
+                cur_edge_list.append((cur_id-1,cur_id))
+                cur_id = cur_id+1
+                
+            top_list.append(cur_list)
+            top_edge_list.append(cur_edge_list)
+        
+        #print(top_edge_list)
+        
+        #maximum length of the base branch
+        total_length = random.randint(len(top_list)-1+1,len(top_list)-1+max_base_branch_length)
+        
+        #decide splice location in the base branch
+        splice_paste_list = []
+        for i in range(len(top_list)-1):
+            splice_point = random.randint(1,total_length-1)
+            while splice_point in splice_paste_list:
+                splice_point = random.randint(1,total_length-1)
+            splice_paste_list.append(splice_point)
+        
+        #refence node for local operation
+        source_ref_id = 1
+        target_ref_id = 1
+        
+        #total list for nodes and edges
+        node_list = []
+        edges_list = []
+        
+        #index of the top branch
+        top_ref = 0
+        #build base branch
+        node_list = node_list + top_list[0]
+        edges_list.append({u'source':0,u'target':1})
+        top_ref = top_ref + 1
+        pre_id = 1
+        
+        #build the graph
+        for i in range(total_length):
+            #find splice position
+            if i in splice_paste_list:
+                source_ref_id = int(edges_list[-1]['target'])
+                targe_ref_id = cur_id
+        
+                #insert donor branch
+                node_list = node_list + top_list[top_ref]
+                for j in top_edge_list[top_ref]:
+                    edges_list.append({u'source':int(j[0]),u'target':int(j[1])})
+                end_id = top_edge_list[top_ref][-1][1]
+                splice_paste_node = self.operation[0].copy()
+                splice_paste_node['id'] = str(cur_id).decode('utf-8')
+                node_list.append(splice_paste_node)
+                #base link
+                edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                #donor link
+                edges_list.append({u'source':int(end_id),u'target':int(cur_id)})
+                top_ref = top_ref+1
+        
+            #other operations
+            else:
+                pick_operation_idx = random.randint(1,len(self.operation)-1)
+                #can't use local operation, no valid mask
+                if source_ref_id == target_ref_id:
+                    while 'Local' in self.operation[pick_operation_idx]['plugin']:
+                        pick_operation_idx = random.randint(1,len(self.operation)-1)
+                #Deal with local operation
+                if 'Local' in self.operation[pick_operation_idx]['plugin']:
+                    cur_node = self.operation[pick_operation_idx].copy()
+                    cur_node[u'id'] = str(cur_id).decode('utf-8')
+        
+                    #set mask source and target 
+                    cur_node[u'arguments'][u'inputmaskname'][u'source'] = str(source_ref_id)
+                    cur_node[u'arguments'][u'inputmaskname'][u'target'] = str(target_ref_id)
+                    node_list.append(cur_node)
+                    edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                else:
+                    cur_node = self.operation[pick_operation_idx].copy()
+                    cur_node[u'id'] = str(cur_id).decode('utf-8')
+                    node_list.append(cur_node)
+                    edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                    #image size changes, local filter can't be used. One can add others
+                    if self.operation[pick_operation_idx][u'plugin'] == u'Crop':
+                        cur_ref_id = next_ref_id
+            
+            pre_id = cur_id
+            cur_id = cur_id+1 
+        
+        #deal with the final operation(CompressAs)
+        cur_node = self.final_operation[0]
+        cur_node[u'id'] = str(cur_id).decode('utf-8')
+        node_list.append(cur_node)
+        edges_list.append({u'source':int(cur_id-1),u'target':int(cur_id)})
+        
+        #sort node based on id
+        node_list.sort(key = lambda x:int(x[u'id']))
+        edges_list.sort(key = lambda x:int(x[u'target']))
+        
+        #get final graph and journal file
+        self.json_data[u'nodes'] = node_list
+        self.json_data[u'links'] = edges_list
+        self.G = json_graph.node_link_graph(self.json_data, multigraph=False, directed=True)
 
     def _buildLocalState(self):
         local_state = {'cleanup' :list()}
@@ -638,12 +769,15 @@ class BatchProject:
         return self.G.graph['name'] if 'name' in self.G.graph else 'Untitled'
 
     def executeForProject(self, project, nodes):
+        if self.auto_graph:
+            self.update_G()
         recompress = self.G.graph['recompress'] if 'recompress' in self.G.graph else False
         global_state = {'picklists_files': {},
                         'project': self,
                         'workdir': project.get_dir(),
                         'count': None,
-                        'permutegroupsmanager': PermuteGroupManager(dir=project.get_dir())
+                        #'permutegroupsmanager': PermuteGroupManager(dir=project.get_dir())
+                        'permutegroupsmanager': PermuteGroupManager(dir='./tests/images')
                         }
         self.logger.info('Thread {} building project {} with local state'.format(currentThread().getName(),
                                                                                    project.getName()))
@@ -697,6 +831,8 @@ class BatchProject:
         return True
 
     def executeOnce(self, global_state=dict()):
+        if self.auto_graph:
+            self.update_G()
         # print 'next ' + currentThread().getName()
         global_state['permutegroupsmanager'].save()
         global_state['permutegroupsmanager'].next()
@@ -861,8 +997,7 @@ class BatchProject:
             logging.getLogger('maskgen').error(str(e))
             raise e
 
-
-def getBatch(jsonFile, loglevel=50):
+def getBatch(jsonFile, auto_graph_flag = False, loglevel=50):
     """
     :param jsonFile:
     :return:
@@ -871,8 +1006,14 @@ def getBatch(jsonFile, loglevel=50):
     FORMAT = '%(asctime)-15s %(message)s'
     logging.basicConfig(format=FORMAT, level=50 if loglevel is None else int(loglevel))
     logging.getLogger('maskgen').setLevel(logging.INFO if loglevel is None else int(loglevel))
-    return loadJSONGraph(jsonFile)
+    with open(jsonFile, "r") as f:
+        json_data = {}
+        try:
+            json_data = json.load(f, encoding='utf-8')
+        except  ValueError:
+            json_data = json.load(f)
 
+    return BatchProject(auto_graph = auto_graph_flag, json_data = json_data)
 
 def thread_worker(globalState=dict()):
     # import copy
@@ -911,7 +1052,8 @@ def loadGlobalStateInitialers(global_state, initializers):
 def main():
     global threadGlobalState
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json', required=True, help='JSON File')
+    parser.add_argument('--json', nargs='?', type=str, default='', help='JSON File')
+    parser.add_argument('--operation_json', nargs='?', type=str, default='./tests/operation_pool.json', help='JSON File')
     parser.add_argument('--count', required=False, help='number of projects to build')
     parser.add_argument('--threads', required=False, help='number of projects to build')
     parser.add_argument('--workdir', required=False,
@@ -920,13 +1062,16 @@ def main():
     parser.add_argument('--loglevel', required=False, help='log level')
     parser.add_argument('--graph', required=False, action='store_true', help='create graph PNG file')
     parser.add_argument('--global_variables', required=False, help='global state initialization')
+    parser.add_argument('--auto_graph', required=False, action='store_true', help='Create random graph for each journal.')
     parser.add_argument('--initializers', required=False, help='global state initialization')
     args = parser.parse_args()
     if not os.path.exists(args.results) or not os.path.isdir(args.results):
         logging.getLogger('maskgen').error('invalid directory for results: ' + args.results)
         return
     loadCustomFunctions()
-    batchProject = getBatch(args.json, loglevel=args.loglevel)
+
+    batchProject = getBatch(args.json,auto_graph_flag = args.auto_graph, loglevel=args.loglevel)
+
     picklists_files = {}
     workdir = '.' if args.workdir is None or not os.path.exists(args.workdir) else args.workdir
     set_logging(workdir)
@@ -937,20 +1082,20 @@ def main():
                          'count': IntObject(int(args.count)) if args.count else None,
                          'permutegroupsmanager': PermuteGroupManager(dir=workdir)
                          }
-    gv = args.global_variables if args.global_variables is not None else ''
-    threadGlobalState.update({ pair[0]:pair[1] for pair in [pair.split('=') for pair in  gv.split(',')]})
-    loadGlobalStateInitialers(threadGlobalState,args.initializers)
-
+    if args.global_variables is not None:
+        gv = args.global_variables if args.global_variables is not None else ''
+        threadGlobalState.update({ pair[0]:pair[1] for pair in [pair.split('=') for pair in  gv.split(',')]})
+        loadGlobalStateInitialers(threadGlobalState,args.initializers)
     batchProject.loadPermuteGroups(threadGlobalState)
     if args.graph is not None:
         batchProject.dump(threadGlobalState)
     threads_count = args.threads if args.threads else 1
     threads = []
     name = 1
-    kwargs = {'global_state':threadGlobalState}
+    kwargs = {'globalState':threadGlobalState}
     for i in range(int(threads_count)):
         name += 1
-        t = Thread(target=thread_worker, name=str(name),kwargs=kwargs)
+        t = Thread(target=thread_worker, name=str(name), kwargs=kwargs)
         threads.append(t)
         t.start()
     for thread in threads:

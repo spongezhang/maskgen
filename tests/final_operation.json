@@ -1,0 +1,19 @@
+{
+   "operation": [
+     {
+      "op_type": "PluginOperation",
+      "plugin": "CompressAs",
+      "experiment_id":"1a",
+      "arguments": {
+         "donor" : {
+           "type": "donor",
+           "source": "0"
+         },
+        "rotate" : {
+          "type" : "value",
+          "value" :"yes"
+        }
+      }
+    }
+  ]
+}
