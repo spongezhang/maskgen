@@ -57,7 +57,7 @@ for i in range(top_number):
 print(top_edge_list)
 
 #maximum length of the base branch
-total_length = random.randint(len(top_list)-1+1,len(top_list)-1+3)
+total_length = random.randint(len(top_list)-1+1,len(top_list)-1+10)
 
 #decide splice location in the base branch
 splice_paste_list = []

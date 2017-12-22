@@ -48,6 +48,18 @@
     {
       "op_type": "PluginOperation",
       "plugin": "ColorEqHist"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "GammaCorrection"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "MedianBlur"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "FilterAverage"
     }
   ]
 }
