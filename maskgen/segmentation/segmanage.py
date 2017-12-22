@@ -14,11 +14,14 @@ def find_segmentation_classifier(image_name,segmentation_directory):
     segment_name = os.path.join(segmentation_directory,real_name + '.png')
     return image_wrap.openImageFile(segment_name) if os.path.exists(segment_name) else None
 
-def find_segmentation_classifier_COCO(image_name,segmentation_directory):
+def find_segmentation_classifier_COCO(image_name, segmentation_directory):
     import os
+    basename = os.path.splitext(os.path.basename(image_name))
+    basename = basename[0]
     # have to fix this, but need a input.
-    real_name = "COCO_train2014_02"
+    real_name = basename#"COCO_train2014_02"
     segment_name = os.path.join(segmentation_directory,real_name + '.png')
+    print(segment_name)
     return image_wrap.openImageFile(segment_name) if os.path.exists(segment_name) else None
 
 def segmentation_classification(segmentation_directory, color):

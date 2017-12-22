@@ -25,6 +25,8 @@ from pycocotools.coco import COCO
 
 import PIL
 
+import pdb
+
 #set all parameters
 dataDir='/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
 dataType='train2014'
@@ -33,6 +35,7 @@ coco=None #COCO(annFile)
 imgIds = None #coco.getImgIds()
 COCO_flag = False
 base_name = None
+global_donor_index = 1
 
 class IntObject:
     value = 0
@@ -54,7 +57,7 @@ class IntObject:
             self.value += 1
             return self.value
 
-def loadJSONGraph(pathname):
+def loadJSONGraph( pathname, auto_graph_flag = False):
     with open(pathname, "r") as f:
         json_data = {}
         try:
@@ -63,7 +66,7 @@ def loadJSONGraph(pathname):
         except  ValueError:
             json_data = json.load(f)
             G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
-        return BatchProject(G,json_data)
+        return BatchProject(G,json_data, auto_graph = auto_graph_flag)
     return None
 
 def buildIterator(spec_name, param_spec, global_state, random_selection=False):
@@ -295,8 +298,9 @@ def pickImage_COCO_with_Mask(node, global_state={}):
         img = coco.loadImgs(imgIds[np.random.randint(0,len(imgIds))])[0]
         annIds = coco.getAnnIds(imgIds=img['id'], iscrowd=None)
         anns = coco.loadAnns(annIds)
+
         print('Donor image name: {}'.format(img['file_name']))
-        
+
         if len(anns)==0:
             tmp_img = PIL.Image.open(os.path.join(node['image_directory'], img['file_name']))
             h,w = tmp_img.size
@@ -322,13 +326,16 @@ def pickImage_COCO_with_Mask(node, global_state={}):
                 real_mask[w/4:3*w/4,h/4:3*h/4] = 1
 
         real_mask = (1-real_mask.astype(np.uint8))*255
-        
+        global global_donor_index
+        global_donor_index = global_donor_index+1
+        basename = 'COCO_train2014_{:02d}'.format(global_donor_index)
+
         w, h = real_mask.shape
         mask = np.empty((w, h, 3), dtype=np.uint8)
         mask[:, :, 0] = real_mask
         mask[:, :, 1] = real_mask
         mask[:, :, 2] = real_mask
-        io.imsave('./tests/mask/'+ 'COCO_train2014_02' + '.png', mask)
+        io.imsave('./tests/mask/'+ basename + '.png', mask)
         f = open('./tests/mask/'+ 'classifications' + '.csv', 'w')
         f.write('"[0,0,0]",object')
         f.close()
@@ -357,7 +364,6 @@ class BatchOperation:
         pass
 
 class ImageSelectionOperation(BatchOperation):
-
     def execute(self, graph, node_name, node, connect_to_node_name, local_state={},global_state={}):
         """
         Add a image to the graph
@@ -390,7 +396,6 @@ class ImageSelectionOperation(BatchOperation):
 
 
 class BaseSelectionOperation(BatchOperation):
-
     def execute(self, graph,node_name, node, connect_to_node_name, local_state={},global_state={}):
         """
         Add a image to the graph
@@ -492,7 +497,6 @@ class PluginOperation(BatchOperation):
         predecessors = [getNodeState(predecessor, local_state)['node'] \
                         for predecessor in graph.predecessors(node_name) \
                         if predecessor != connect_to_node_name and 'node' in getNodeState(predecessor, local_state)]
-
         predecessor_state=getNodeState(connect_to_node_name, local_state)
         local_state['model'].selectImage(predecessor_state['node'])
         im, filename = local_state['model'].currentImage()
@@ -599,7 +603,6 @@ class InputMaskPluginOperation(PluginOperation):
 class ImageSelectionPluginOperation(InputMaskPluginOperation):
     logger = logging.getLogger('maskgen')
 
-
     def imageFromPlugin(self, filter, im, filename, node_name, local_state, **kwargs):
         import tempfile
         """
@@ -631,10 +634,6 @@ class ImageSelectionPluginOperation(InputMaskPluginOperation):
             raise ValueError("Plugin " + filter + " failed:" + msg)
         return target,params
 
-#<<<<<<< HEAD
-#batch_operations = {'BaseSelection': BaseSelectionOperation(),'ImageSelection':ImageSelectionOperation(),
-#                    'PluginOperation' : PluginOperation(),'InputMaskPluginOperation' : InputMaskPluginOperation()}
-#=======
 
 batch_operations = {'BaseSelection': BaseSelectionOperation(),
                     'ImageSelection':ImageSelectionOperation(),
@@ -642,8 +641,6 @@ batch_operations = {'BaseSelection': BaseSelectionOperation(),
                     'PluginOperation' : PluginOperation(),
                     'InputMaskPluginOperation' : InputMaskPluginOperation(),
                     'NodeAttachment': BaseAttachmentOperation()}
-
-#>>>>>>> 34e0c70729949db083ddbc94f0d711b9eb68ed0a
 
 def getOperationGivenDescriptor(descriptor):
     """
@@ -677,14 +674,161 @@ class BatchProject:
     logger = logging.getLogger('maskgen')
 
     G = nx.DiGraph(name="Empty")
-    def __init__(self,G,json_data):
+    def __init__(self,G,json_data, auto_graph = False):
         """
         :param G:
         @type G: nx.DiGraph
         """
-        self.G = G
-        self.json_data = json_data
+        self.json_data = json_data.copy()
+        self.auto_graph = auto_graph
+        if auto_graph:
+            with open('./tests/top_operation.json') as data_file:    
+                self.top_operation = json.load(data_file)['operation']
+            with open('./tests/operation_pool.json') as data_file:    
+                self.operation = json.load(data_file)['operation']
+            #self.operation = json_data['operation']
+            #self.json_data.pop('operation', None)
+            with open('./tests/final_operation.json') as data_file:    
+                self.final_operation = json.load(data_file)['operation']
+            self.update_G()
+        else:
+            self.G = G
+            #self.G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
         tool_set.setPwdX(tool_set.CustomPwdX(self.G.graph['username']))
+
+    def update_G(self, max_top_number = 3, max_base_branch_length = 3):
+        #number of base+donor, 1 mean 1 base, 2 means 1 base + 1 donor 
+        top_number = random.randint(1, max_top_number)
+        #list of top nodes, including select image and convert to png
+        top_list = []
+        #top edge list
+        top_edge_list = []
+        #node id number
+        cur_id = 0
+        for i in range(top_number):
+            cur_list = []
+            cur_edge_list = []
+        
+            #i==0 base branch, otherwise donor branch
+            if i == 0:
+                cur_node = self.top_operation[0].copy()
+            else:
+                cur_node = self.top_operation[1].copy()
+            cur_node[u'id'] = str(cur_id).decode('utf-8')
+            cur_id = cur_id+1
+            cur_list.append(cur_node)
+            
+            #toPNG plugin 
+            cur_node = self.top_operation[2].copy()
+            cur_node[u'id'] = str(cur_id).decode('utf-8')
+            cur_list.append(cur_node)
+            cur_edge_list.append((cur_id-1,cur_id))
+            cur_id = cur_id+1
+            
+            # mask selection plugin
+            if i>0:
+                cur_node = self.top_operation[3].copy()
+                cur_node[u'id'] = str(cur_id).decode('utf-8')
+                cur_list.append(cur_node)
+                cur_edge_list.append((cur_id-1,cur_id))
+                cur_id = cur_id+1
+                
+            top_list.append(cur_list)
+            top_edge_list.append(cur_edge_list)
+        
+        #print(top_edge_list)
+        
+        #maximum length of the base branch
+        total_length = random.randint(len(top_list)-1+1,len(top_list)-1+max_base_branch_length)
+        
+        #decide splice location in the base branch
+        splice_paste_list = []
+        for i in range(len(top_list)-1):
+            splice_point = random.randint(1,total_length-1)
+            while splice_point in splice_paste_list:
+                splice_point = random.randint(1,total_length-1)
+            splice_paste_list.append(splice_point)
+        
+        #refence node for local operation
+        source_ref_id = 1
+        target_ref_id = 1
+        
+        #total list for nodes and edges
+        node_list = []
+        edges_list = []
+        
+        #index of the top branch
+        top_ref = 0
+        #build base branch
+        node_list = node_list + top_list[0]
+        edges_list.append({u'source':0,u'target':1})
+        top_ref = top_ref + 1
+        pre_id = 1
+        
+        #build the graph
+        for i in range(total_length):
+            #find splice position
+            if i in splice_paste_list:
+                source_ref_id = int(edges_list[-1]['target'])
+                targe_ref_id = cur_id
+        
+                #insert donor branch
+                node_list = node_list + top_list[top_ref]
+                for j in top_edge_list[top_ref]:
+                    edges_list.append({u'source':int(j[0]),u'target':int(j[1])})
+                end_id = top_edge_list[top_ref][-1][1]
+                splice_paste_node = self.operation[0].copy()
+                splice_paste_node['id'] = str(cur_id).decode('utf-8')
+                node_list.append(splice_paste_node)
+                edges_list.append({u'source':int(end_id),u'target':int(cur_id)})
+                #base link
+                edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                #donor link
+                top_ref = top_ref+1
+        
+            #other operations
+            else:
+                pick_operation_idx = random.randint(1,len(self.operation)-1)
+                #can't use local operation, no valid mask
+                if source_ref_id == target_ref_id:
+                    while 'Local' in self.operation[pick_operation_idx]['plugin']:
+                        pick_operation_idx = random.randint(1,len(self.operation)-1)
+                #Deal with local operation
+                if 'Local' in self.operation[pick_operation_idx]['plugin']:
+                    cur_node = self.operation[pick_operation_idx].copy()
+                    cur_node[u'id'] = str(cur_id).decode('utf-8')
+        
+                    #set mask source and target 
+                    cur_node[u'arguments'][u'inputmaskname'][u'source'] = str(source_ref_id)
+                    cur_node[u'arguments'][u'inputmaskname'][u'target'] = str(target_ref_id)
+                    node_list.append(cur_node)
+                    edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                else:
+                    cur_node = self.operation[pick_operation_idx].copy()
+                    cur_node[u'id'] = str(cur_id).decode('utf-8')
+                    node_list.append(cur_node)
+                    edges_list.append({u'source':int(pre_id),u'target':int(cur_id)})
+                    #image size changes, local filter can't be used. One can add others
+                    if self.operation[pick_operation_idx][u'plugin'] == u'Crop':
+                        cur_ref_id = next_ref_id
+            
+            pre_id = cur_id
+            cur_id = cur_id+1 
+        
+        #deal with the final operation(CompressAs)
+        cur_node = self.final_operation[0]
+        cur_node[u'id'] = str(cur_id).decode('utf-8')
+        node_list.append(cur_node)
+        edges_list.append({u'source':int(cur_id-1),u'target':int(cur_id)})
+        
+        #sort node based on id
+        node_list.sort(key = lambda x:int(x[u'id']))
+        edges_list.sort(key = lambda x:int(x[u'target']))
+        
+        #get final graph and journal file
+        self.json_data[u'nodes'] = node_list
+        self.json_data[u'links'] = edges_list
+        self.G = json_graph.node_link_graph(self.json_data, multigraph=False, directed=True)
 
     def _buildLocalState(self):
         local_state = {}
@@ -698,6 +842,8 @@ class BatchProject:
         return self.G.graph['name'] if 'name' in self.G.graph else 'Untitled'
 
     def executeForProject(self, project, nodes):
+        if self.auto_graph:
+            self.update_G()
         recompress = self.G.graph['recompress'] if 'recompress' in self.G.graph else False
         global_state = {'picklists_files': {},
                              'project': self,
@@ -749,6 +895,8 @@ class BatchProject:
         return True
 
     def executeOnce(self, global_state=dict()):
+        if self.auto_graph:
+            self.update_G()
         #print 'next ' + currentThread().getName()
         global_state['permutegroupsmanager'].save()
         global_state['permutegroupsmanager'].next()
@@ -901,7 +1049,7 @@ class BatchProject:
             logging.getLogger('maskgen').error(str(e))
             raise e
 
-def getBatch(jsonFile,loglevel=50):
+def getBatch(jsonFile, auto_graph_flag = False, loglevel=50):
     """
     :param jsonFile:
     :return:
@@ -909,7 +1057,7 @@ def getBatch(jsonFile,loglevel=50):
     """
     FORMAT = '%(asctime)-15s %(message)s'
     logging.basicConfig(format=FORMAT,level=50 if loglevel is None else int(loglevel))
-    return  loadJSONGraph(jsonFile)
+    return  loadJSONGraph(jsonFile, auto_graph_flag)
 
 threadGlobalState = {}
 
@@ -949,13 +1097,15 @@ def main():
     parser.add_argument('--COCO_flag', required=False, action='store_true', help='whether to use COCO dataset.')
     parser.add_argument("--COCO_Dir", nargs='?', type=str, default = '/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/'
 ,help="Directory of MS COCO dataset.")
+    parser.add_argument('--auto_graph', required=False, action='store_true', help='Create random graph for each journal.')
+    
     
     args = parser.parse_args()
     if not os.path.exists(args.results) or not os.path.isdir(args.results):
         logging.getLogger('maskgen').error( 'invalid directory for results: ' + args.results)
         return
     loadCustomFunctions()
-    batchProject =getBatch(args.json, loglevel=args.loglevel)
+    batchProject = getBatch(args.json, auto_graph_flag = args.auto_graph, loglevel=args.loglevel)
     picklists_files = {}
     
     workdir = '.' if args.workdir is None or not os.path.exists(args.workdir) else args.workdir
