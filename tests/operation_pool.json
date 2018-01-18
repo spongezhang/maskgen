@@ -1,0 +1,75 @@
+{
+  "directed": true,
+  "graph": {
+    "username": "xuzhang",
+    "name": "sample",
+    "organization": "ColumbiaU",
+    "projectDescription" : "test",
+    "technicalSummary" : "Automated",
+    "semanticrestaging" : "no",
+    "semanticrepurposing" : "no",
+    "semanticrefabrication" : "no",
+    "recompress": false
+  },
+  "operation": [
+    {
+      "op_type": "PluginOperation",
+      "plugin": "PasteSplice",
+      "arguments": {
+        "approach": {
+           "type":"value",
+           "value": "random"
+         },
+        "segment": {
+           "type":"value",
+           "value": "slic"
+         },
+         "donor" : {
+           "type": "donor"
+         }
+      }
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "GaussianLocalBlur",
+      "arguments": {
+        "inputmaskname" : {
+          "type" : "mask",
+          "source" :"2",
+          "target": "5"
+
+        },
+        "invertmask": {
+          "type":"value",
+          "value":true
+        }
+      }
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "ColorEqHist"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "GammaCorrection"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "MedianBlur",
+      "arguments": {
+          "kernelSize": {
+              "type": "value",
+              "value":5
+          }
+      }
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "Dilate"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "Erode"
+    }
+  ]
+}

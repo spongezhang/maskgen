@@ -1,0 +1,33 @@
+{
+  "operation": [
+    {
+      "op_type": "BaseSelection",
+      "image_directory": "/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/images/train2014",
+      "picklist": "../reference/jpg_list",
+      "id": "0"
+    },
+    {
+      "op_type": "ImageSelection",
+      "image_directory": "/dvmm-filer2/users/xuzhang/Medifor/data/MSCOCO/images/train2014",
+      "picklist": "../reference/jpg_list",
+      "id": "1"
+    },
+    {
+      "op_type": "PluginOperation",
+      "plugin": "OutputPNG",
+      "arguments": {
+        "Image Rotated" : {
+          "type" : "value",
+          "value" :"yes"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "op_type": "PluginOperation",
+      "arguments": {
+      },
+      "plugin": "PreSegmentedSelectRegion"
+    }
+  ]
+}

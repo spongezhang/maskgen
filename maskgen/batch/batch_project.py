@@ -696,9 +696,12 @@ class BatchProject:
             #self.G = json_graph.node_link_graph(json_data, multigraph=False, directed=True)
         tool_set.setPwdX(tool_set.CustomPwdX(self.G.graph['username']))
 
-    def update_G(self, max_top_number = 3, max_base_branch_length = 3):
+    def update_G(self, max_top_number = 3, max_base_branch_length = 5):
+        global global_donor_index
+        global_donor_index = 1
         #number of base+donor, 1 mean 1 base, 2 means 1 base + 1 donor 
         top_number = random.randint(1, max_top_number)
+        #top_number = 3
         #list of top nodes, including select image and convert to png
         top_list = []
         #top edge list
@@ -739,16 +742,16 @@ class BatchProject:
         #print(top_edge_list)
         
         #maximum length of the base branch
-        total_length = random.randint(len(top_list)-1+1,len(top_list)-1+max_base_branch_length)
+        total_length = random.randint(len(top_list)-1+1,len(top_list)-1+max_base_branch_length+1)
+        #total_length = len(top_list)-1+3
         
         #decide splice location in the base branch
         splice_paste_list = []
         for i in range(len(top_list)-1):
-            splice_point = random.randint(1,total_length-1)
+            splice_point = random.randint(0,total_length-1)
             while splice_point in splice_paste_list:
-                splice_point = random.randint(1,total_length-1)
+                splice_point = random.randint(0,total_length-1)
             splice_paste_list.append(splice_point)
-        
         #refence node for local operation
         source_ref_id = 1
         target_ref_id = 1
@@ -1077,9 +1080,10 @@ def thread_worker(**kwargs):
                 logging.getLogger('maskgen').info( 'Thread {} Completed {}'.format(currentThread().getName (),
                                                                                    project_directory))
             else:
-                logging.getLogger('maskgen').error(
-                    'Exiting thread {} due to failure to create project'.format(currentThread().getName()))
-                break
+                pass
+                #logging.getLogger('maskgen').error(
+                #    'Exiting thread {} due to failure to create project'.format(currentThread().getName()))
+                #break
         except Exception as e:
             logging.getLogger('maskgen').info('Completed thread: ' + str(e))
 

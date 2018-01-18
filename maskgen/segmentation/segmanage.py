@@ -60,6 +60,7 @@ def select_region(img, mask, color=None):
     """
     rgba = img.convert('RGBA').to_array()
     mask = mask.to_array()
+    #mask = mask.T
     channel = np.zeros((mask.shape[0],mask.shape[1])).astype('uint8')
     if color is None or color == 'None':
         colors = np.unique(np.vstack(mask).view([('', mask.dtype)] * np.prod(np.vstack(mask).shape[1])))
